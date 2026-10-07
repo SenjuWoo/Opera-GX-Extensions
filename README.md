@@ -12,9 +12,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ShugokiFable/Opera-GX-Extensions/actions/workflows/ci.yml"><img src="https://github.com/ShugokiFable/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-ff3ea5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/ShugokiFable/Opera-GX-Extensions/releases/tag/v2026.09.02"><img src="https://img.shields.io/badge/release-v2026.09.02-8f9aa6?labelColor=0d0f11" alt="v2026.09.02"></a>
+  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.09.02"><img src="https://img.shields.io/badge/release-v2026.09.02-8f9aa6?labelColor=0d0f11" alt="v2026.09.02"></a>
   <img src="https://img.shields.io/badge/manifest-V3-8f9aa6?labelColor=0d0f11" alt="Manifest V3">
 </p>
 
@@ -59,7 +59,7 @@ Download the `.crx` for what you want from [`Release/`](Release) and drag it ont
 
 Chrome, Edge and Brave reject any `.crx` without a Web Store publisher signature. On those, use the `.zip`: unpack it, then Developer mode → Load unpacked.
 
-Latest packaged GitHub release: [v2026.09.02](https://github.com/ShugokiFable/Opera-GX-Extensions/releases/tag/v2026.09.02) (Nexus Archive Helper 1.1.1). The `Release/` folder in this tree is the same class of artifact, rebuilt from current manifests.
+Latest packaged GitHub release: [v2026.09.02](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.09.02) (Nexus Archive Helper 1.1.1). The `Release/` folder in this tree is the same class of artifact, rebuilt from current manifests.
 
 ## Build
 
