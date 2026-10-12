@@ -132,6 +132,7 @@ $("profileSelect").addEventListener("change", async event => {
 $("siteToggle").addEventListener("click", async () => {
   if (!currentHost) return setMessage("This browser page cannot be allowlisted.", true);
   const result = await chrome.runtime.sendMessage({ type: "TOGGLE_SITE", domain: currentHost });
+  if (!result?.ok) return setMessage(result?.error || "Trust change failed.", true);
   setMessage(result.allowed ? "Site trusted. Reloading…" : "Protection restored. Reloading…");
   if (tabId != null) await chrome.tabs.reload(tabId);
   window.close();

@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 1.0.3
+
+- Turning the shield off now disables its network blocklist as well as its popup guard.
+- Same-window `window.open` targets no longer get blocked or consume popup quotas.
+- Network ruleset failures are reported in the extension worker console.
+
 ## 1.0.2
 
 Fixed

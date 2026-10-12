@@ -43,6 +43,7 @@
     observer: null,
     mediaObserver: null,
     optimizationQueued: false,
+    optimizationRoot: null,
     chat: {
       profile: matchChatHost(),
       isChat: Boolean(matchChatHost()),
@@ -89,7 +90,7 @@
     root.classList.toggle('gxo-enabled', Boolean(settings.enabled));
     root.classList.toggle('gxo-reduce-animations', Boolean(settings.enabled && settings.reduceAnimations));
     root.classList.toggle('gxo-reduce-blur', Boolean(settings.enabled && settings.reduceBlur));
-    root.classList.toggle('gxo-aggressive-containment', Boolean(settings.enabled && settings.aggressiveContainment));
+    root.classList.toggle('gxo-aggressive-containment', Boolean(settings.enabled && settings.universalTurbo && settings.aggressiveContainment));
     root.classList.toggle('gxo-chat-effects', Boolean(settings.enabled && settings.chatReduceEffects && state.chat.isChat));
   }
 
@@ -105,13 +106,25 @@
 
   function optimizeVideos(root = document) {
     const settings = state.settings;
-    if (!settings?.enabled || !settings.universalTurbo || !settings.pauseOffscreenMutedVideo) return;
+    if (!settings?.enabled || !settings.universalTurbo || !settings.pauseOffscreenMutedVideo) {
+      state.mediaObserver?.disconnect();
+      state.mediaObserver = null;
+      document.querySelectorAll('video[data-gxo-video]').forEach((video) => {
+        delete video.dataset.gxoVideo;
+        if (video.dataset.gxoPausedOffscreen === '1') {
+          delete video.dataset.gxoPausedOffscreen;
+          if (video.paused) video.play().catch(() => {});
+        }
+      });
+      return;
+    }
     if (!state.mediaObserver) {
       state.mediaObserver = new IntersectionObserver((entries) => {
         for (const entry of entries) {
           const video = entry.target;
           if (!(video instanceof HTMLVideoElement)) continue;
-          if (!entry.isIntersecting && !video.paused && (video.muted || video.autoplay) && document.pictureInPictureElement !== video) {
+          if (!state.settings?.enabled || !state.settings.universalTurbo || !state.settings.pauseOffscreenMutedVideo) continue;
+          if (!entry.isIntersecting && !video.paused && (video.muted || video.volume === 0) && document.pictureInPictureElement !== video) {
             video.dataset.gxoPausedOffscreen = '1';
             video.pause();
           } else if (entry.isIntersecting && video.dataset.gxoPausedOffscreen === '1') {
@@ -183,7 +196,7 @@
   function optimizeChat(force = false) {
     const settings = state.settings;
     if (!state.chat.isChat || !settings?.enabled || !settings.chatOptimizer) {
-      document.querySelectorAll('.gxo-chat-turn.gxo-folded').forEach((node) => node.classList.remove('gxo-folded'));
+      document.querySelectorAll('.gxo-chat-turn').forEach((node) => node.classList.remove('gxo-folded', 'gxo-chat-turn'));
       state.chat.toolbar?.remove();
       state.chat.toolbar = null;
       return { turns: 0, hidden: 0 };
@@ -216,7 +229,8 @@
     if (foldCount > 0 || force) {
       const toolbar = ensureChatToolbar();
       const counter = toolbar.querySelector('[data-gxo-hidden]');
-      if (counter) counter.textContent = `${foldCount} older turn${foldCount === 1 ? '' : 's'} folded`;
+      const label = `${foldCount} older turn${foldCount === 1 ? '' : 's'} folded`;
+      if (counter && counter.textContent !== label) counter.textContent = label;
       toolbar.hidden = foldCount === 0;
     } else if (state.chat.toolbar) {
       state.chat.toolbar.hidden = true;
@@ -242,11 +256,14 @@
   }
 
   function queueOptimize(root = document) {
+    state.optimizationRoot = state.optimizationRoot && state.optimizationRoot !== root ? document : root;
     if (state.optimizationQueued) return;
     state.optimizationQueued = true;
     idle(() => {
       state.optimizationQueued = false;
-      optimize(root);
+      const pendingRoot = state.optimizationRoot;
+      state.optimizationRoot = null;
+      optimize(pendingRoot);
     });
   }
 
@@ -262,8 +279,9 @@
 
 
   state.observer = new MutationObserver((mutations) => {
-    const root = mutations.find((mutation) => mutation.addedNodes?.length)?.target || document;
-    queueOptimize(root instanceof Element ? root : document);
+    for (const mutation of mutations) {
+      if (mutation.addedNodes?.length) queueOptimize(mutation.target instanceof Element ? mutation.target : document);
+    }
   });
   state.observer.observe(document.documentElement, { childList: true, subtree: true });
 

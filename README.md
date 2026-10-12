@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-ff3ea5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.09.02"><img src="https://img.shields.io/badge/release-v2026.09.02-8f9aa6?labelColor=0d0f11" alt="v2026.09.02"></a>
+  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.12"><img src="https://img.shields.io/badge/release-v2026.10.12-8f9aa6?labelColor=0d0f11" alt="v2026.10.12"></a>
   <img src="https://img.shields.io/badge/manifest-V3-8f9aa6?labelColor=0d0f11" alt="Manifest V3">
 </p>
 
@@ -32,34 +32,38 @@
 
 Opera GX's packer can sign a real `.crx` from a private key you keep offline. These extensions are written to that path: no store listing required, IDs stable across unpacked and packed installs, settings survive version bumps.
 
-They are not a telemetry suite. NEXUS Research and Nexus Archive Helper talk to APIs *you* configure (OpenRouter, Nexus Mods). The rest stay on the machine.
+No developer telemetry, analytics, or remote executable code. NEXUS Research uses your OpenRouter key; optional Nexus Archive Helper uses your Nexus API key. Site resources, threat feeds and downloads still use the network.
+
+![Aegis trusted-site settings in an isolated Opera GX test](docs/aegis-trust.png)
+
+Trusted hosts cover HTTP and HTTPS on all ports; optional debug diagnostics remain local.
 
 ## What you get
 
 | Extension | Version | What it does |
 | --- | --- | --- |
-| [GX Overdrive](extensions/gx-overdrive) | 1.2.2 | Performance governor: two-engine tab hibernation, long-chat folding for ChatGPT / Claude / Gemini / Perplexity, media throttling, download recovery |
-| [Aegis GX Sentinel](extensions/aegis-gx-sentinel) | 1.3.5 | Privacy and threat shield: stealth ad / tracker blocking, phishing and malware defence, leak protection, per-rule block log |
-| [NebulaGrab](extensions/nebulagrab) | 1.3.1 | Media detector with resumable downloads, HLS / DASH fragment capture, Smart Fetch |
-| [PopShield GX](extensions/popshield-gx) | 1.0.2 | Popup, popunder, click-hijack and interstitial blocker — behavioural, not blocklist-driven |
-| [Nocturne Scrollbars GX](extensions/nocturne-scrollbars-gx) | 1.1.0 | Dark modern scrollbars with presets, per-site profiles, adaptive contrast |
-| [NEXUS Research](extensions/nexus-research) | 1.0.1 | Deep web research through OpenRouter with page intelligence and citations |
-| [OLED Forge GX](extensions/oled-forge-gx) | 1.0.1 | True-black OLED treatment |
-| [PrismShot GX](extensions/prismshot-gx) | 1.0.0 | Video frame capture |
+| [GX Overdrive](extensions/gx-overdrive) | 1.2.3 | Performance governor: two-engine tab hibernation, long-chat folding for ChatGPT / Claude / Gemini / Perplexity, media throttling, download recovery |
+| [Aegis GX Sentinel](extensions/aegis-gx-sentinel) | 1.3.6 | Privacy and threat shield: stealth ad / tracker blocking, phishing and malware defence, leak protection, per-rule block log |
+| [NebulaGrab](extensions/nebulagrab) | 1.3.2 | Media detector with resumable downloads, HLS / DASH fragment capture, Smart Fetch |
+| [PopShield GX](extensions/popshield-gx) | 1.0.3 | Popup, popunder, click-hijack and interstitial blocker — behavioural, not blocklist-driven |
+| [Nocturne Scrollbars GX](extensions/nocturne-scrollbars-gx) | 1.1.1 | Dark modern scrollbars with presets, per-site profiles, adaptive contrast |
+| [NEXUS Research](extensions/nexus-research) | 1.0.2 | Deep web research through OpenRouter with page intelligence and citations |
+| [OLED Forge GX](extensions/oled-forge-gx) | 1.0.2 | True-black OLED treatment |
+| [PrismShot GX](extensions/prismshot-gx) | 1.0.1 | Video frame capture |
 
 Optional, not essential:
 
 | Extension | Version | What it does |
 | --- | --- | --- |
-| [Nexus Archive Helper](extensions/nexus-archive-helper) | 1.1.1 | Resolves archived, old, hidden-page and deleted Nexus Mods files via the official Nexus API |
+| [Nexus Archive Helper](extensions/nexus-archive-helper) | 1.1.2 | Resolves archived, old, hidden-page and deleted Nexus Mods files via the official Nexus API |
 
 ## Install
 
-Download the `.crx` for what you want from [`Release/`](Release) and drag it onto `opera://extensions`.
+Download the `.crx` for what you want from the [latest release](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/latest) or [`Release/`](Release) and drag it onto `opera://extensions`.
 
 Chrome, Edge and Brave reject any `.crx` without a Web Store publisher signature. On those, use the `.zip`: unpack it, then Developer mode → Load unpacked.
 
-Latest packaged GitHub release: [v2026.09.02](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.09.02) (Nexus Archive Helper 1.1.1). The `Release/` folder in this tree is the same class of artifact, rebuilt from current manifests.
+Latest packaged GitHub release: [v2026.10.12](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.12) (all nine extensions and Companion 1.3.1). See the [maintenance audit](AUDIT-2026-10-12.md) and [plain-text changelog](Release/CHANGELOG-2026.10.12.txt).
 
 ## Build
 
@@ -88,8 +92,8 @@ _archive/       superseded copies, gitignored
 
 ```powershell
 cd sources/nexus-research-ts
-npm install
-npm run build
+npm ci
+npm run sync:opera
 ```
 
 `sources/nexus-archive-helper` is the project behind the optional helper. Rebuild and re-sync:
@@ -104,15 +108,17 @@ npm run sync:opera
 
 Each extension has a private key in `tools/keys/`, which is **gitignored and must stay that way**. The matching public key is pinned in the manifest as `key`, so an extension's ID comes from the key rather than from an install path. That is what lets the same folder be loaded unpacked and shipped as a `.crx` under one identity, and what makes folder renames harmless.
 
-Lost a key? The next build mints a fresh one automatically and tells you it did. The only consequence is that the new `.crx` installs alongside the old copy instead of updating it, so you remove the old card once.
+Lost a key? Restore its backup before building. The builder stops on missing or mismatched keys for existing extensions, preserving their identities and settings. Only an extension without a pinned identity can receive a new signing key.
+
+The optional Archive Helper's existing installed ID differs from its pre-existing repository key. Its new CRX may install separately; preserve the old installation and settings until migration succeeds. The eight main extensions retain their installed identities.
 
 ## Honest status
 
 Verified in this tree:
 
-- CI: `node --check` over `extensions/`, `sources/`, `tools/` JS; TypeScript build for `sources/nexus-research-ts`
+- CI: JavaScript syntax, extension regressions, TypeScript/build checks, generated runtime parity, companion tests, versions and signing-identity preservation
 - Manifest versions in the table above
-- `Release/` contains matching `.crx` / `.zip` plus `SHA256SUMS.txt`
+- Signed CRX identities and tamper rejection; fresh ZIP payloads and native Opera downloads. See [audit coverage](AUDIT-2026-10-12.md).
 - Root [LICENSE](LICENSE) is MIT
 
 Not claimed:
@@ -123,6 +129,6 @@ Not claimed:
 
 ## License
 
-[MIT](LICENSE) for this repository.
+[MIT](LICENSE) for repository material unless a folder carries its own license.
 
-Per-folder MIT copies also ship with GX Overdrive, Aegis GX Sentinel, PopShield GX, Nocturne Scrollbars GX, OLED Forge GX, and PrismShot GX. NebulaGrab, NEXUS Research, and Nexus Archive Helper inherit the root MIT file.
+Aegis GX Sentinel carries [GPL-3.0](extensions/aegis-gx-sentinel/LICENSE). Other per-folder licenses remain authoritative; bundled dependencies retain their own licenses.

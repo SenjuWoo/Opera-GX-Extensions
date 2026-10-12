@@ -90,6 +90,8 @@
     queue: [],
     queued: new WeakSet(),
     scanning: false,
+    drainId: 0,
+    debugLog: false,
     observer: null,
     viewportTimer: 0,
     idleTimer: 0,
@@ -113,6 +115,9 @@
   };
 
   const host = (location.hostname || location.origin || 'local').toLowerCase();
+  const debug = (...args) => {
+    if (state.debugLog) console.debug(`OLED Forge ${chrome.runtime.getManifest().version}`, ...args);
+  };
 
   function detectProfile() {
     return SITE_PROFILES.find((entry) => entry.test(host))?.profile || GENERIC_PROFILE;
@@ -131,10 +136,15 @@
   }
 
   async function loadSettings() {
-    const data = await storageGet(['oledForgeSettings', 'oledForgeSites']);
+    const [data, local] = await Promise.all([
+      storageGet(['oledForgeSettings', 'oledForgeSites']),
+      chrome.storage.local.get('debugLog')
+    ]);
+    state.debugLog = local.debugLog === true;
     state.settings = { ...DEFAULTS, ...(data.oledForgeSettings || {}) };
     state.site = { enabled: true, ...((data.oledForgeSites || {})[host] || {}) };
     state.profile = detectProfile();
+    debug('resolved settings', state.settings, state.site);
   }
 
   function isEnabled() {
@@ -472,6 +482,8 @@
     if (state.scanning || !state.active) return;
     state.scanning = true;
     const runner = (deadline) => {
+      state.drainId = 0;
+      if (!state.active) { state.scanning = false; return; }
       const profile = state.settings.performance;
       const hardLimit = profile === 'turbo' ? 900 : profile === 'eco' ? 160 : 420;
       let processed = 0;
@@ -483,12 +495,12 @@
         processed += 1;
       }
       if (state.queue.length && state.active) {
-        requestIdleCallback(runner, { timeout: 220 });
+        state.drainId = requestIdleCallback(runner, { timeout: 220 });
       } else {
         state.scanning = false;
       }
     };
-    requestIdleCallback(runner, { timeout: 180 });
+    state.drainId = requestIdleCallback(runner, { timeout: 180 });
   }
 
   function enqueue(element) {
@@ -599,6 +611,7 @@
 
     const arm = () => {
       clearTimeout(state.idleTimer);
+      if (!state.active || !state.settings.panelGuard || Number(state.settings.idleDimMinutes) <= 0) return;
       document.documentElement.dataset.oledforgeIdle = 'false';
       state.idleTimer = setTimeout(() => {
         if (!state.active) return;
@@ -617,13 +630,17 @@
   }
 
   function clearApplied() {
+    state.active = false;
     state.observer?.disconnect();
+    if (state.drainId) cancelIdleCallback(state.drainId);
+    state.drainId = 0;
     clearTimeout(state.viewportTimer);
     clearTimeout(state.idleTimer);
     state.queue.length = 0;
+    state.queued = new WeakSet();
     state.scanning = false;
     for (const element of state.applied) {
-      if (!element?.isConnected) continue;
+      if (!element) continue;
       element.classList.remove(
         'oledforge-bg', 'oledforge-fg', 'oledforge-prose', 'oledforge-border',
         'oledforge-neutral-gradient', 'oledforge-before-bg', 'oledforge-after-bg',
@@ -648,6 +665,7 @@
     document.documentElement.removeAttribute('data-oledforge-profile');
     document.documentElement.removeAttribute('data-oledforge-sharp-text');
     document.documentElement.removeAttribute('data-oledforge-idle');
+    debug('page restored');
   }
 
   function activate() {
@@ -660,7 +678,7 @@
     state.pageKind = classifyPage();
     if (state.pageKind === 'light' && !state.settings.convertLightPages) {
       state.pageKind = 'dark-only-skipped';
-      deactivate(false);
+      deactivate();
       return;
     }
 
@@ -669,19 +687,16 @@
     root.dataset.oledforgePage = state.pageKind;
     root.dataset.oledforgeProfile = state.profile.name;
     root.dataset.oledforgeSharpText = String(Boolean(state.settings.sharpenText));
+    debug('engine active', state.pageKind, state.profile.name);
     installObserver();
     setupPanelGuard();
     enqueueTree(root);
     viewportRescan();
   }
 
-  function deactivate(clear = true) {
+  function deactivate() {
     state.active = false;
-    if (clear) clearApplied();
-    else {
-      state.observer?.disconnect();
-      document.documentElement.removeAttribute('data-oledforge-active');
-    }
+    clearApplied();
   }
 
   async function reloadAndApply() {
@@ -715,7 +730,10 @@
       return undefined;
     }
     if (message.type === 'OLED_FORGE_RELOAD') {
-      reloadAndApply().then(() => sendResponse(status()));
+      reloadAndApply().then(() => sendResponse(status())).catch((error) => {
+        console.error('OLED Forge reload failed:', error);
+        sendResponse({ error: error.message, active: false });
+      });
       return true;
     }
     if (message.type === 'OLED_FORGE_TOGGLE') {
@@ -727,8 +745,10 @@
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== 'sync') return;
-    if (changes.oledForgeSettings || changes.oledForgeSites) reloadAndApply();
+    if ((areaName === 'sync' && (changes.oledForgeSettings || changes.oledForgeSites)) ||
+        (areaName === 'local' && changes.debugLog)) {
+      reloadAndApply().catch((error) => console.error('OLED Forge settings failed:', error));
+    }
   });
 
   addEventListener('scroll', scheduleViewportRescan, { passive: true });
@@ -744,13 +764,9 @@
       activate();
       setTimeout(() => {
         if (!state.active) return;
-        const nextKind = classifyPage();
-        if (nextKind !== state.pageKind) {
-          clearApplied();
-          activate();
-        } else {
-          viewportRescan();
-        }
+        // Classify the site's original colors, rather than our converted surfaces.
+        clearApplied();
+        activate();
       }, 900);
     };
 
@@ -759,5 +775,5 @@
     } else {
       start();
     }
-  })();
+  })().catch((error) => console.error('OLED Forge startup failed:', error));
 })();

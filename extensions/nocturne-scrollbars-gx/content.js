@@ -13,6 +13,7 @@
   let lastShadowCss = '';
   let deepEnabled = false;
   let deepScanQueued = false;
+  let observedShadowRoots = new WeakSet();
 
   function getAmbientColor() {
     const candidates = [];
@@ -56,6 +57,10 @@
   function styleShadowRoot(root) {
     if (!root || root.mode !== 'open') return;
     try {
+      if (deepObserver && !observedShadowRoots.has(root)) {
+        deepObserver.observe(root, { childList: true, subtree: true });
+        observedShadowRoots.add(root);
+      }
       if (supportsConstructedStylesheets()) {
         if (!constructedSheet) {
           constructedSheet = new CSSStyleSheet();
@@ -71,7 +76,7 @@
           style.setAttribute(SHADOW_STYLE_ATTR, '1');
           root.appendChild(style);
         }
-        style.textContent = lastShadowCss;
+        if (style.textContent !== lastShadowCss) style.textContent = lastShadowCss;
         fallbackShadowStyles.add(style);
       }
     } catch {
@@ -118,15 +123,22 @@
     deepEnabled = false;
     deepObserver?.disconnect();
     deepObserver = null;
+    Nocturne.debug('deep shadow coverage stopped');
+    observedShadowRoots = new WeakSet();
     if (constructedSheet) {
-      for (const element of document.querySelectorAll('*')) {
-        const root = element.shadowRoot;
-        if (root?.adoptedStyleSheets?.includes(constructedSheet)) {
+      // Empty the shared sheet too, so a temporarily detached component is restored.
+      constructedSheet.replaceSync('');
+      const removeFrom = (tree) => {
+        for (const element of tree.querySelectorAll('*')) {
+          const root = element.shadowRoot;
+          if (!root) continue;
           try {
             root.adoptedStyleSheets = root.adoptedStyleSheets.filter((sheet) => sheet !== constructedSheet);
           } catch { /* ignored */ }
+          removeFrom(root);
         }
-      }
+      };
+      removeFrom(document);
     }
     for (const style of fallbackShadowStyles) style.remove();
     fallbackShadowStyles = new Set();
@@ -175,6 +187,7 @@
       }
       style.textContent = Nocturne.buildScrollbarCss(settings, ambient);
       updateShadowCoverage(settings, ambient);
+      Nocturne.debug('scrollbars applied', { enabled: settings.enabled, deepShadowDom: deepEnabled });
     } catch (error) {
       console.warn('Nocturne could not apply settings:', error);
     }
@@ -187,7 +200,7 @@
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local') return;
-    if (changes[Nocturne.STORAGE_KEYS.GLOBAL] || changes[Nocturne.STORAGE_KEYS.RULES]) scheduleRefresh();
+    if (changes[Nocturne.STORAGE_KEYS.GLOBAL] || changes[Nocturne.STORAGE_KEYS.RULES] || changes.debugLog) scheduleRefresh();
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

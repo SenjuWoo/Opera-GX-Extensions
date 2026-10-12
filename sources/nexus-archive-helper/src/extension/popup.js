@@ -15,6 +15,7 @@ const filtersEl = $('#resultFilters');
 const resultsMeta = $('#resultsMeta');
 const quotaEl = $('#quota');
 let currentResult = null;
+let currentReference = '';
 let currentFilter = 'ALL';
 
 const HUMAN_STATUSES = ['AVAILABLE', 'ARCHIVED', 'OLD_VERSION', 'DELETED', 'HIDDEN', 'UNKNOWN'];
@@ -71,8 +72,9 @@ function renderFiles(){
   }));
 }
 
-function renderResult(result){
+function renderResult(result,resolvedReference){
   currentResult=result;currentFilter='ALL';
+  currentReference=resolvedReference;
   emptyState.classList.add('hidden');resultsSection.classList.remove('hidden');
   const archived=result.files.filter(f=>displayStatus(f,result)==='ARCHIVED').length;
   $('#resultsTitle').textContent=archived?`${archived} archived file${archived===1?'':'s'} found`:'Files found';
@@ -85,7 +87,7 @@ async function resolveReference(value){
   if(!input){setStatus('Paste a Nexus reference first.','error');return;}
   reference.value=input;setStatus('Querying Nexus file records…','busy');
   try{
-    const r=await send({type:'RESOLVE',reference:input});updateQuota(r.quota);renderResult(r.result);
+    const r=await send({type:'RESOLVE',reference:input});updateQuota(r.quota);renderResult(r.result,input);
     const archived=r.result.files.filter(f=>displayStatus(f,r.result)==='ARCHIVED').length;
     const hidden=r.result.files.filter(f=>displayStatus(f,r.result)==='HIDDEN').length;
     const bits=[`${r.result.files.length} unique file record${r.result.files.length===1?'':'s'}`];if(archived)bits.push(`${archived} archived`);if(hidden)bits.push(`${hidden} hidden-page`);if(r.result.exact)bits.push(`exact #${r.result.exact.fileId} resolved`);
@@ -95,7 +97,7 @@ async function resolveReference(value){
 
 async function doDownload(fileId,preferNxm){
   setStatus(`Resolving download authorization for file #${fileId}…`,'busy');
-  const r=await send({type:'DOWNLOAD',reference:reference.value,fileId});updateQuota(r.quota);const d=r.result;
+  const r=await send({type:'DOWNLOAD',reference:currentReference,fileId});updateQuota(r.quota);const d=r.result;
   if(d.mode==='direct'&&d.url){setStatus(`Direct Nexus CDN link authorized for #${fileId}.`,'ok');await openUrl(d.url);return;}
   if(d.mode==='website'){setStatus('Direct CDN access was not authorized; opening Nexus official download flow.','ok');await openUrl(preferNxm&&d.nxmUrl?d.nxmUrl:d.url);return;}
   setStatus(`Nexus no longer exposes a download for file #${fileId}. ${d.reason||''}`,'error');

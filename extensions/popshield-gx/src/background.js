@@ -1,6 +1,7 @@
 'use strict';
 
 const DEFAULTS = Object.freeze({
+  debug: false,
   enabled: true,
   requireGesture: true,
   gestureWindowMs: 1000,
@@ -26,6 +27,7 @@ function clamp(value, min, max, fallback) {
 function sanitize(input) {
   const next = { ...DEFAULTS, ...(input || {}) };
   next.enabled = Boolean(next.enabled);
+  next.debug = Boolean(next.debug);
   next.requireGesture = Boolean(next.requireGesture);
   next.blockAboutBlank = Boolean(next.blockAboutBlank);
   next.networkRules = Boolean(next.networkRules);
@@ -47,6 +49,7 @@ async function setSettings(patch) {
   const next = sanitize({ ...(await getSettings()), ...patch });
   await chrome.storage.local.set({ settings: next });
   await applyRulesets(next);
+  if (next.debug) console.debug('PopShield: settings applied', next);
   return next;
 }
 
@@ -54,10 +57,10 @@ async function setSettings(patch) {
 // the behavioural engine.
 async function applyRulesets(settings) {
   try {
-    if (settings.networkRules) await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [RULESET] });
+    if (settings.enabled && settings.networkRules) await chrome.declarativeNetRequest.updateEnabledRulesets({ enableRulesetIds: [RULESET] });
     else await chrome.declarativeNetRequest.updateEnabledRulesets({ disableRulesetIds: [RULESET] });
-  } catch {
-    // Ruleset already in the requested state.
+  } catch (error) {
+    console.error('PopShield: network ruleset sync failed', error);
   }
   // Per-site allows must reach the network layer too, or "allow popups on
   // this site" only un-blocks the behavioural engine and the blocklist keeps
@@ -122,7 +125,9 @@ async function ensureInstalled() {
   if (!stored.settings) writes.settings = { ...DEFAULTS };
   if (!stored.stats) writes.stats = { ...STAT_DEFAULTS };
   if (Object.keys(writes).length) await chrome.storage.local.set(writes);
-  await applyRulesets(await getSettings());
+  const settings = await getSettings();
+  if (settings.debug) console.debug('PopShield GX', chrome.runtime.getManifest().version, 'startup', settings);
+  await applyRulesets(settings);
 
   await chrome.contextMenus.removeAll();
   chrome.contextMenus.create({ id: MENU_KILL, title: 'PopShield: remove blocking overlay', contexts: ['page'] });

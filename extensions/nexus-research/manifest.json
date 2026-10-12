@@ -4,7 +4,7 @@
   "name": "NEXUS Research",
   "short_name": "NEXUS",
   "description": "Deep web research through OpenRouter with page intelligence, citations, vision, privacy controls, and research sessions.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minimum_chrome_version": "116",
   "permissions": [
     "activeTab",

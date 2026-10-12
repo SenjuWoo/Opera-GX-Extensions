@@ -100,6 +100,10 @@
   });
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  let debugLog = false;
+  function debug(...args) {
+    if (debugLog) console.debug(`Nocturne ${chrome.runtime.getManifest().version}`, ...args);
+  }
 
   function normalizeHex(value, fallback = '#000000') {
     if (typeof value !== 'string') return fallback;
@@ -330,8 +334,15 @@
 
     return `
 ${selector} {
-  scrollbar-color: ${rgba(thumb, baseAlpha)} ${trackColor} !important;
-  scrollbar-width: ${settings.width <= 10 ? 'thin' : 'auto'} !important;
+  /* Non-auto standard properties suppress Chromium's detailed scrollbar rules. */
+  scrollbar-color: auto !important;
+  scrollbar-width: auto !important;
+}
+@supports not selector(::-webkit-scrollbar) {
+  ${selector} {
+    scrollbar-color: ${rgba(thumb, baseAlpha)} ${trackColor} !important;
+    scrollbar-width: ${settings.width <= 10 ? 'thin' : 'auto'} !important;
+  }
 }
 ${webkit} {
   width: ${settings.width}px !important;
@@ -387,11 +398,12 @@ ${settings.respectReducedMotion ? `@media (prefers-reduced-motion: reduce) {
   // and edits started failing silently. Local is authoritative now; sync is
   // opt-in, on a button, for moving a profile between machines.
   async function readState() {
-    const [local, sync] = await Promise.all([
-      chrome.storage.local.get([STORAGE_KEYS.GLOBAL, STORAGE_KEYS.RULES]),
-      chrome.storage.sync.get(STORAGE_KEYS.GLOBAL).catch(() => ({}))
-    ]);
+    const local = await chrome.storage.local.get([STORAGE_KEYS.GLOBAL, STORAGE_KEYS.RULES, 'debugLog']);
+    debugLog = local.debugLog === true;
+    const sync = local[STORAGE_KEYS.GLOBAL] ? {}
+      : await chrome.storage.sync.get(STORAGE_KEYS.GLOBAL).catch(() => ({}));
     const migrated = local[STORAGE_KEYS.GLOBAL] || sync[STORAGE_KEYS.GLOBAL];
+    debug('resolved settings', sanitizeSettings(migrated), sanitizeRules(local[STORAGE_KEYS.RULES]));
     return {
       global: sanitizeSettings(migrated),
       rules: sanitizeRules(local[STORAGE_KEYS.RULES])
@@ -452,6 +464,7 @@ ${settings.respectReducedMotion ? `@media (prefers-reduced-motion: reduce) {
     STORAGE_KEYS,
     DEFAULT_SETTINGS,
     PRESETS,
+    debug,
     clamp,
     normalizeHex,
     hexToRgb,

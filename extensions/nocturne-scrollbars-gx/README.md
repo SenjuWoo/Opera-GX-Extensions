@@ -42,3 +42,9 @@ The default mode performs no recurring polling and no mutation scanning. It read
 ## Development
 
 Open `opera://extensions`, enable Developer mode, and load this folder unpacked. After editing files, click **Reload** on the extension card.
+
+Run the dependency-free regressions with `node tests/regression.cjs`.
+
+## Diagnostics
+
+Debug logging is off by default. In this extension's service-worker console at `opera://extensions`, run `chrome.storage.local.set({ debugLog: true })`, then refresh a webpage. Version, resolved settings, and application/cleanup events appear in that page's DevTools console (select the Nocturne content-script context); storage/menu errors also appear in the worker console. Set `debugLog: false` to turn debug logging off. Logs stay local in DevTools.

@@ -37,7 +37,8 @@
           total += slice.length;
         }
       }
-      try { await reader.cancel(); } catch (_) {}
+      // Cancelling a cloned fetch can wait for the original stream to finish.
+      void reader.cancel().catch(() => {});
       const merged = new Uint8Array(total);
       let offset = 0;
       for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.length; }
@@ -58,7 +59,8 @@
             size: Number(response.headers.get('content-length')) || null,
             statusCode: response.status
           });
-          void sniffFetchManifest(response, url);
+          const mime = response.headers.get('content-type') || '';
+          if (!/^(?:image|audio|video)\//i.test(mime) || /mpegurl|dash\+xml/i.test(mime)) void sniffFetchManifest(response, url);
         } catch (_) {}
       }).catch(() => {});
       return promise;

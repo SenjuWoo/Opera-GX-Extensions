@@ -28,6 +28,12 @@ Install the `.user.js` release artifact.
 
 Open **Settings** in the extension, paste a Nexus Personal API key, and choose **Save + test**. The key is stored in browser local extension storage and sent only to the Nexus API.
 
+In Tampermonkey, use **Set API key + Test** or the **Set Nexus Archive Helper API key** menu command. Setup uses a native prompt; the saved key is never inserted into the site's HTML.
+
+## Debug log
+
+Open the extension service worker's DevTools console for failures. Run `chrome.storage.local.set({ debug: true })` there, then reload the extension for version, API origin, timeout, and response logs. Set `debug: false` and reload to return to quiet mode. Keys and signed URL query parameters are never logged.
+
 ## Development
 
 ```powershell

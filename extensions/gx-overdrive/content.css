@@ -13,7 +13,7 @@ html.gxo-reduce-blur * {
   -webkit-backdrop-filter: none !important;
 }
 
-.gxo-heavy-block {
+html.gxo-aggressive-containment .gxo-heavy-block {
   content-visibility: auto !important;
   contain-intrinsic-size: auto 800px !important;
 }

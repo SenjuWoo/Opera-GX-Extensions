@@ -15,11 +15,13 @@ const DEFAULT_SETTINGS = Object.freeze({
   smartFetchCookies: false,
   smartFetchBrowser: 'opera',
   clearOnNavigation: true,
-  notifications: true
+  notifications: true,
+  debugLog: false
 });
 
 const tabStores = new Map();
 const persistTimers = new Map();
+const hydrationLoads = new Map();
 const requestHeaderStores = new Map();
 const requestHeadersById = new Map();
 let settingsCache = null;
@@ -69,6 +71,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   tabStores.delete(tabId);
   requestHeaderStores.delete(tabId);
+  hydrationLoads.delete(tabId);
+  clearTimeout(persistTimers.get(tabId));
+  persistTimers.delete(tabId);
   chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
 });
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
@@ -109,8 +114,9 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
-  (details) => {
+  async (details) => {
     if (details.tabId < 0) return;
+    if (!(await getSettings()).captureNetwork) return;
     const headers = {};
     for (const header of details.requestHeaders || []) {
       const name = String(header.name || '').toLowerCase();
@@ -169,7 +175,10 @@ chrome.webRequest.onErrorOccurred.addListener((details) => requestHeadersById.de
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   void handleMessage(message || {}, sender)
     .then((result) => sendResponse({ ok: true, ...result }))
-    .catch((error) => sendResponse({ ok: false, error: error?.message || String(error) }));
+    .catch((error) => {
+      debugLog('failure', { operation: message?.type, cause: error?.message || String(error) });
+      sendResponse({ ok: false, error: error?.message || String(error) });
+    });
   return true;
 });
 
@@ -217,6 +226,7 @@ async function handleMessage(message, sender) {
       return {};
     }
     case 'DOWNLOAD_ITEM': {
+      await hydrateTab(Number(message.tabId));
       const item = getItemById(Number(message.tabId), message.id) || normalizeItem(message.item || {}, Number(message.tabId), 0);
       if (!item) throw new Error('Media item was not found.');
       return await downloadItem(item);
@@ -225,11 +235,13 @@ async function handleMessage(message, sender) {
       return await smartFetchPage(Number(message.tabId));
     case 'DOWNLOAD_ITEMS': {
       const tabId = Number(message.tabId);
+      await hydrateTab(tabId);
       const ids = Array.isArray(message.ids) ? message.ids : [];
       const items = ids.map((id) => getItemById(tabId, id)).filter(Boolean);
       return await downloadMany(items);
     }
     case 'ANALYZE_MANIFEST': {
+      await hydrateTab(Number(message.tabId));
       const item = getItemById(Number(message.tabId), message.id);
       if (!item) throw new Error('Manifest item was not found.');
       const analysis = await analyzeManifest(item.url, item.kind);
@@ -253,12 +265,11 @@ async function handleMessage(message, sender) {
   }
 }
 
-const BOOLEAN_SETTINGS = ['autoScan', 'captureNetwork', 'reliableDownloads', 'fallbackToBrowser', 'smartFetchCookies', 'clearOnNavigation', 'notifications'];
+const BOOLEAN_SETTINGS = ['autoScan', 'captureNetwork', 'reliableDownloads', 'fallbackToBrowser', 'smartFetchCookies', 'clearOnNavigation', 'notifications', 'debugLog'];
 const NUMERIC_SETTINGS = { minImageWidth: [0, 8192], minImageHeight: [0, 8192], maxItemsPerTab: [50, 20000] };
 
 // Settings arrived straight from a message and were written through unchecked.
-// helperUrl matters most: the companion token is sent to it as a header, so an
-// unvalidated value is a place to leak that token to an arbitrary host.
+// The pairing token belongs only to the documented loopback companion.
 function sanitizeSettings(input) {
   const next = { ...DEFAULT_SETTINGS, ...(input || {}) };
 
@@ -276,6 +287,7 @@ function sanitizeSettings(input) {
   try {
     const url = new URL(String(next.helperUrl || DEFAULT_SETTINGS.helperUrl));
     if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('bad protocol');
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.username || url.password) throw new Error('Companion must be on localhost');
     next.helperUrl = url.origin;
   } catch {
     next.helperUrl = DEFAULT_SETTINGS.helperUrl;
@@ -288,13 +300,25 @@ async function getSettings() {
   if (settingsCache) return settingsCache;
   const result = await chrome.storage.local.get('settings');
   settingsCache = sanitizeSettings(result.settings);
+  debugLog('startup', { captureNetwork: settingsCache.captureNetwork, autoScan: settingsCache.autoScan, helperUrl: settingsCache.helperUrl });
   return settingsCache;
+}
+
+function debugLog(event, details) {
+  if (settingsCache?.debugLog) console.debug(`[NebulaGrab ${chrome.runtime.getManifest().version}] ${event}`, details);
 }
 
 // Another context (or a restored profile) can change settings without going
 // through SAVE_SETTINGS; without this the worker keeps serving a stale cache.
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && changes.settings) settingsCache = sanitizeSettings(changes.settings.newValue);
+  if (area === 'local' && changes.settings) {
+    settingsCache = sanitizeSettings(changes.settings.newValue);
+    if (!settingsCache.captureNetwork) {
+      requestHeaderStores.clear();
+      requestHeadersById.clear();
+    }
+    debugLog('settings', { captureNetwork: settingsCache.captureNetwork, autoScan: settingsCache.autoScan, helperUrl: settingsCache.helperUrl });
+  }
 });
 
 function getStore(tabId) {
@@ -343,7 +367,7 @@ function normalizeItem(raw, tabId, frameId) {
   const mime = String(raw.mime || '').split(';')[0].trim().toLowerCase();
   const segment = segmentInfo(url, mime);
   const kind = raw.kind === 'segment' || segment ? 'segment' : raw.kind || kindFromMime(mime) || kindFromUrl(url) || (parsed.protocol === 'blob:' ? 'blob' : null);
-  if (!kind) return null;
+  if (!['image', 'video', 'audio', 'hls', 'dash', 'segment', 'blob'].includes(kind)) return null;
 
   const segmentFamily = kind === 'segment' ? String(raw.segmentFamily || segment?.family || segmentFamilyKey(url)) : '';
   const segmentSequence = kind === 'segment' ? numberOrNull(raw.segmentSequence ?? segment?.sequence) : null;
@@ -451,12 +475,18 @@ function getItemById(tabId, id) {
 function patchItem(tabId, id, patch) {
   const store = tabStores.get(tabId);
   const item = store?.items.get(id);
-  if (item) store.items.set(id, { ...item, ...patch });
+  if (item) {
+    store.items.set(id, { ...item, ...patch });
+    schedulePersist(tabId);
+  }
 }
 
 function clearTab(tabId) {
   tabStores.delete(tabId);
   requestHeaderStores.delete(tabId);
+  hydrationLoads.delete(tabId);
+  clearTimeout(persistTimers.get(tabId));
+  persistTimers.delete(tabId);
   chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
   setBadge(tabId);
 }
@@ -465,24 +495,37 @@ function sessionKey(tabId) { return `tab_${tabId}`; }
 
 async function hydrateTab(tabId) {
   if (!Number.isFinite(tabId) || tabStores.has(tabId)) return;
-  try {
-    const key = sessionKey(tabId);
-    const stored = await chrome.storage.session.get(key);
-    const list = Array.isArray(stored[key]) ? stored[key] : [];
+  if (hydrationLoads.has(tabId)) return hydrationLoads.get(tabId);
+  const load = (async () => {
+    let list = [];
+    try {
+      const key = sessionKey(tabId);
+      const stored = await chrome.storage.session.get(key);
+      list = Array.isArray(stored[key]) ? stored[key] : [];
+    } catch (_) {}
+    // A clear/navigation invalidates in-flight reads so old media cannot reappear.
+    if (hydrationLoads.get(tabId) !== load || tabStores.has(tabId)) return;
     const store = { items: new Map(), createdAt: Date.now() };
     for (const item of list) if (item?.id) store.items.set(item.id, item);
     tabStores.set(tabId, store);
+    hydrationLoads.delete(tabId);
     setBadge(tabId);
-  } catch (_) {
-    tabStores.set(tabId, { items: new Map(), createdAt: Date.now() });
-  }
+  })();
+  hydrationLoads.set(tabId, load);
+  return load;
 }
 
 function schedulePersist(tabId) {
   clearTimeout(persistTimers.get(tabId));
   persistTimers.set(tabId, setTimeout(async () => {
     persistTimers.delete(tabId);
-    const items = getStoredItems(tabId);
+    const items = getStoredItems(tabId).map((item) => ({
+      ...item,
+      segmentUrls: (item.segmentUrls || []).map((entry) => ({
+        ...entry,
+        headers: Object.fromEntries(Object.entries(entry.headers || {}).filter(([name]) => !['cookie', 'authorization'].includes(name.toLowerCase())))
+      }))
+    }));
     try { await chrome.storage.session.set({ [sessionKey(tabId)]: items }); } catch (_) {}
   }, 250));
 }
@@ -547,11 +590,12 @@ async function downloadItem(item) {
   if (item.url.startsWith('blob:')) {
     if (item.blobType === 'MediaSource') throw new Error('This is a MediaSource stream. Use the detected HLS/DASH manifest instead.');
     try {
-      await chrome.tabs.sendMessage(item.tabId, {
+      const result = await chrome.tabs.sendMessage(item.tabId, {
         type: 'DOWNLOAD_BLOB',
         url: item.url,
         filename: buildFilename(item)
       }, { frameId: item.frameId || 0 });
+      if (!result?.started) throw new Error(result?.error || 'The page could not start this blob download.');
       return { mode: 'blob', started: true };
     } catch (_) {
       throw new Error('The page no longer owns this blob URL. Reload the page and scan again.');
@@ -670,6 +714,7 @@ async function sendToHelper(item, forcedKind = '') {
     cookiesFromBrowser: kind === 'page' && settings.smartFetchCookies ? (settings.smartFetchBrowser || 'opera') : ''
   };
   const result = await helperRequest('/download', { method: 'POST', body: JSON.stringify(payload) });
+  debugLog('download', { mode: kind, jobId: result.jobId });
   if (settings.notifications) {
     chrome.notifications.create({
       type: 'basic',
@@ -742,7 +787,7 @@ async function helperRequest(path, options = {}) {
 
   let response;
   try {
-    response = await fetch(`${base}${path}`, { method: options.method || 'GET', headers, body: options.body });
+    response = await fetch(`${base}${path}`, { method: options.method || 'GET', headers, body: options.body, redirect: 'error' });
   } catch (_) {
     throw new Error('NebulaGrab Companion is offline. Start companion/start_helper.bat and configure its token in Settings.');
   }
@@ -1105,7 +1150,11 @@ function stableUrlIdentity(value) {
   try {
     const url = new URL(value);
     if (!['http:', 'https:'].includes(url.protocol)) return String(value || '');
-    return `${url.protocol}//${url.host}${url.pathname}`;
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:token|signature|sig|expires|expiry|policy|key-pair-id|x-amz-.+|x-goog-.+)$/i.test(key)) url.searchParams.delete(key);
+    }
+    url.hash = '';
+    return url.href;
   } catch (_) {
     return String(value || '');
   }

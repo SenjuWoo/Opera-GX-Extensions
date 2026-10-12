@@ -117,6 +117,28 @@ const guardSource = fs.readFileSync(path.join(root, "content/guard.js"), "utf8")
 if (!guardSource.includes('config.adblock.youtube?.mode !== "network"')) {
   throw new Error("Network-only YouTube mode can still trigger cosmetic DOM changes");
 }
+const guardConfig = structuredClone(config);
+guardConfig.allowlist = ["www.example.com"];
+guardConfig.adblock.allowlist = ["www.example.com"];
+const appended = [];
+const guardDocument = {
+  querySelectorAll: () => [],
+  querySelector: () => ({}),
+  getElementById: () => null,
+  createElement: () => ({ style: {}, setAttribute() {} }),
+  documentElement: { appendChild: node => appended.push(node) },
+  addEventListener() {}
+};
+vm.runInNewContext(guardSource, {
+  location: { hostname: "www.example.com", protocol: "http:" },
+  chrome: { runtime: { sendMessage: async () => ({ config: guardConfig }) } },
+  document: guardDocument,
+  window: { addEventListener() {} },
+  MutationObserver: class { observe() {} },
+  setTimeout, clearTimeout, console
+});
+await new Promise(resolve => setImmediate(resolve));
+if (appended.length) throw new Error("A trusted www host still receives cosmetic filtering or an insecure-form banner");
 const privacyRules = JSON.parse(fs.readFileSync(path.join(root, "rules/privacy_core.json"), "utf8"));
 if (privacyRules.some(rule => Number(rule.priority) <= 1000)) {
   throw new Error("Ad-only allow rules could override tracking-parameter protection");

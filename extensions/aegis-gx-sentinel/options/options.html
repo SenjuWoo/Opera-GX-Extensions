@@ -178,7 +178,7 @@
     </section>
 
     <section class="grid">
-      <div class="panel"><h2>Trusted domains</h2><p>One domain per line. Subdomains inherit trust.</p><textarea id="allowlist" spellcheck="false"></textarea></div>
+      <div class="panel"><h2>Trusted domains</h2><p>One host or URL per line, including localhost, 127.0.0.1, or [::1]. Trust covers HTTP and HTTPS on all ports; domain subdomains inherit trust.</p><textarea id="allowlist" spellcheck="false"></textarea><label class="check"><input id="debugLog" type="checkbox"><span><strong>Debug logging</strong><small>Write version, configuration summary, and state changes to the extension service-worker console.</small></span></label></div>
       <div class="panel"><h2>Custom blocked domains</h2><p>One domain or URL per line. These are merged into the live threat set.</p><textarea id="customBlocklist" spellcheck="false"></textarea></div>
     </section>
 

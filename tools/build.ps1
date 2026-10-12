@@ -30,9 +30,19 @@ function Write-Head([string]$text) {
   Write-Host ('-' * $text.Length) -ForegroundColor DarkMagenta
 }
 
+function Remove-StagePath([string]$path) {
+  $resolved = [System.IO.Path]::GetFullPath($path)
+  $root = [System.IO.Path]::GetFullPath($StageRoot)
+  if ($resolved -ne $root -and -not $resolved.StartsWith($root + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to remove a path outside build staging: $resolved"
+  }
+  if (Test-Path -LiteralPath $resolved) { Remove-Item -LiteralPath $resolved -Recurse -Force }
+}
+
 if (-not $Opera) {
   $Opera = @(
     (Join-Path $env:LOCALAPPDATA 'Programs\Opera GX\opera.exe'),
+    (Join-Path $env:USERPROFILE 'AppData\Local\Programs\Opera GX\opera.exe'),
     (Join-Path $env:ProgramFiles 'Opera GX\opera.exe'),
     (Join-Path ${env:ProgramFiles(x86)} 'Opera GX\opera.exe')
   ) | Where-Object { Test-Path $_ } | Select-Object -First 1
@@ -104,54 +114,63 @@ $built = New-Object System.Collections.Generic.List[object]
 $notes = New-Object System.Collections.Generic.List[string]
 
 Write-Head 'Building'
+try {
 foreach ($dir in (Get-ChildItem $ExtensionDir -Directory)) {
   $manifestPath = Join-Path $dir.FullName 'manifest.json'
   if (-not (Test-Path $manifestPath)) { continue }
 
   try { $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json }
-  catch { Write-Host "  SKIP  $($dir.Name) (manifest.json is not valid JSON)" -ForegroundColor Red; continue }
+  catch { throw "Invalid manifest.json for $($dir.Name): $_" }
 
   $slug = Get-Slug $manifest $dir.Name
   $key = Join-Path $KeyDir "$slug.pem"
 
-  # A missing key is not fatal: mint a fresh one. The cost is a new extension ID,
-  # which means the next .crx installs alongside the old copy instead of updating
-  # it, so say that out loud rather than letting it be discovered later.
+  # Never replace an established identity: that would strand installed settings.
   if (-not (Test-Path $key)) {
+    if ($manifest.key) { throw "Signing key missing for $slug. Restore tools/keys/$slug.pem; the existing extension identity was preserved." }
     $seed = Join-Path $StageRoot "$slug-seed"
     Copy-Item $dir.FullName $seed -Recurse -Force
     Invoke-Pack $seed $null | Out-Null
     Move-Item "$seed.pem" $key -Force
-    Remove-Item "$seed.crx", $seed -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-StagePath "$seed.crx"
+    Remove-StagePath $seed
     Write-Host "  NEWKEY  $slug  (no signing key existed - a fresh identity was generated)" -ForegroundColor Yellow
     $notes.Add("$slug got a brand new signing key, so its .crx installs as a new extension rather than updating an existing one. Remove the old card once.")
   }
 
   $identity = node (Join-Path $ToolsDir 'pubkey.cjs') $key | ConvertFrom-Json
+  if ($LASTEXITCODE -ne 0 -or -not $identity.key) { throw "Unable to read signing identity for $slug" }
   if ($manifest.key -ne $identity.key) {
-    if ($manifest.key) { $notes.Add("$slug had a different key pinned; its ID is now $($identity.id).") }
-    if (Set-ManifestKey $manifestPath $identity.key) { Write-Host "  PIN     $slug -> $($identity.id)" -ForegroundColor Cyan }
+    if ($manifest.key) { throw "Signing key mismatch for $slug. Restore the matching private key; no identity was replaced." }
+    if (-not (Set-ManifestKey $manifestPath $identity.key)) { throw "Unable to pin identity for $slug" }
+    Write-Host "  PIN     $slug -> $($identity.id)" -ForegroundColor Cyan
   }
 
   $stage = Join-Path $StageRoot $slug
   Copy-Item $dir.FullName $stage -Recurse -Force
-  Remove-Item (Join-Path $stage '.git') -Recurse -Force -ErrorAction SilentlyContinue
+  foreach ($devItem in @('.git', '_metadata', 'tests', 'tools', 'node_modules', 'package.json', 'package-lock.json', 'QA_REPORT.md')) {
+    Remove-StagePath (Join-Path $stage $devItem)
+  }
+  node (Join-Path $ToolsDir 'validate-extension.mjs') $stage
+  if ($LASTEXITCODE -ne 0) { throw "Payload validation failed for $slug" }
   $crx = Invoke-Pack $stage $key
   $crxTarget = Join-Path $ReleaseDir ("{0}-v{1}.crx" -f $slug, $manifest.version)
-  Get-ChildItem $ReleaseDir -Filter "$slug-v*.crx" | Remove-Item -Force -ErrorAction SilentlyContinue
-  Move-Item $crx $crxTarget -Force
 
   if (-not $NoZip) {
     $zipTarget = Join-Path $ReleaseDir ("{0}-v{1}.zip" -f $slug, $manifest.version)
-    Get-ChildItem $ReleaseDir -Filter "$slug-v*.zip" | Remove-Item -Force -ErrorAction SilentlyContinue
-    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipTarget -CompressionLevel Optimal
+    $stagedZip = Join-Path $StageRoot "$slug.zip"
+    Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $stagedZip -CompressionLevel Optimal
   }
-  Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+  Remove-StagePath $stage
 
   $live = $installed[$manifest.name]
   $state = 'not installed'
   if ($live) {
-    if ($live.Version -eq $manifest.version) { $state = "installed, up to date" }
+    if ($live.Id -ne $identity.id) {
+      $state = "different installed identity - installs separately"
+      $notes.Add("$slug has a different installed ID. Keep its old copy/settings until you have migrated to the new installation.")
+    }
+    elseif ($live.Version -eq $manifest.version) { $state = "installed, up to date" }
     else { $state = "installed v$($live.Version) - drag to update" }
   }
 
@@ -160,15 +179,29 @@ foreach ($dir in (Get-ChildItem $ExtensionDir -Directory)) {
     Version   = $manifest.version
     Id        = $identity.id
     Browser   = $state
+    StagedCrx = $crx
+    CrxTarget = $crxTarget
+    StagedZip = $(if (-not $NoZip) { $stagedZip } else { $null })
+    ZipTarget = $(if (-not $NoZip) { $zipTarget } else { $null })
   })
   Write-Host ("  OK      {0,-16} v{1,-8} {2}" -f $slug, $manifest.version, $state) -ForegroundColor Green
 }
 
-Remove-Item $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
+foreach ($item in $built) {
+  Move-Item -LiteralPath $item.StagedCrx -Destination $item.CrxTarget -Force
+  Get-ChildItem $ReleaseDir -Filter "$($item.Extension)-v*.crx" | Where-Object FullName -ne $item.CrxTarget | Remove-Item -Force
+  if ($item.StagedZip) {
+    Move-Item -LiteralPath $item.StagedZip -Destination $item.ZipTarget -Force
+    Get-ChildItem $ReleaseDir -Filter "$($item.Extension)-v*.zip" | Where-Object FullName -ne $item.ZipTarget | Remove-Item -Force
+  }
+}
 
-Get-ChildItem $ReleaseDir -File | Where-Object { $_.Extension -in @('.crx', '.zip') } | ForEach-Object {
+Get-ChildItem $ReleaseDir -File | Where-Object { $_.Extension -in @('.crx', '.zip', '.js', '.txt') -and $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object {
   "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash, $_.Name
 } | Set-Content (Join-Path $ReleaseDir 'SHA256SUMS.txt') -Encoding utf8
+} finally {
+  Remove-StagePath $StageRoot
+}
 
 Write-Head 'Result'
 $built | Format-Table Extension, Version, Id, Browser -AutoSize | Out-String | Write-Host
@@ -183,8 +216,7 @@ Write-Host '  Drag the .crx files from Release onto opera://extensions.'
 Write-Host '  Same key + higher version = in-place update, settings kept.'
 Write-Host ''
 Write-Host "  keys live in $KeyDir - back that folder up." -ForegroundColor Yellow
-Write-Host '  Lose it and the next build mints a new identity automatically; the'
-Write-Host '  only cost is removing the old card once.'
+Write-Host '  Missing or mismatched keys stop the build rather than changing an existing identity.'
 
 if (-not $NoLaunch) { Start-Process explorer.exe $ReleaseDir }
 Write-Host ''

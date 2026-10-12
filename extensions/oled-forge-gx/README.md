@@ -58,3 +58,7 @@ npm run check
 ## License
 
 MIT
+
+## Diagnostics
+
+Debug logging is off by default. In this extension's service-worker console at `opera://extensions`, run `chrome.storage.local.set({ debugLog: true })`, then refresh a webpage. Version, resolved settings, engine activation/restoration, and failures appear in that page's DevTools console (select the OLED Forge content-script context). Set `debugLog: false` to turn debug logging off. Logs stay local in DevTools; no log file or network upload is created.

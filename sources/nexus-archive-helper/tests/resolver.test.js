@@ -98,6 +98,26 @@ test('resolveDownload falls back to official Nexus file page on 403', async () =
   assert.match(result.reason, /Premium users only/);
 });
 
+test('resolveDownload rejects script, insecure, and credential-bearing URIs', async () => {
+  const ref = C.parseReference('skyrim:10:20');
+  for (const URI of ['javascript:alert(1)', 'data:text/html,test', 'http://cdn.example/file.7z', 'https://user:pass@cdn.example/file.7z']) {
+    const result = await R.resolveDownload(ref, 20, fakeRequester({
+      [C.downloadLinkUrl(ref, 20)]: [{ URI }],
+    }));
+    assert.equal(result.mode, 'unavailable', URI);
+    assert.equal(result.url, null);
+  }
+});
+
+test('resolveDownload skips an unsafe link and returns only safe HTTPS links', async () => {
+  const ref = C.parseReference('skyrim:10:20');
+  const result = await R.resolveDownload(ref, 20, fakeRequester({
+    [C.downloadLinkUrl(ref, 20)]: [{ URI: 'javascript:alert(1)' }, { URI: 'https://cdn.example/file.7z' }],
+  }));
+  assert.equal(result.mode, 'direct');
+  assert.deepEqual(result.links, [{ URI: 'https://cdn.example/file.7z' }]);
+});
+
 test('validateUser recognizes premium flag variants', async () => {
   const request = fakeRequester({
     'https://api.nexusmods.com/v1/users/validate.json': { user_id: 5, name: 'Test', is_premium: true },

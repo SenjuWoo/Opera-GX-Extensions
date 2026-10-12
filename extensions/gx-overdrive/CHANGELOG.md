@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.3 — 2026-10-12
+
+- Keep user-paused downloads paused and release keep-awake for paused-only downloads.
+- Disconnect video throttling when disabled, restore playback it paused, and preserve audible autoplay videos.
+- Cover every subtree in a mutation burst and prevent unchanged chat toolbar text from retriggering the observer indefinitely.
+- Restore chat containment and aggressive containment when their controls are disabled.
+- Add dependency-free content/download regressions and opt-in local `debugLog` console diagnostics.
+
 ## 1.2.2
 
 Fixed

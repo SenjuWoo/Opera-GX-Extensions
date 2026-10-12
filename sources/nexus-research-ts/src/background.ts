@@ -19,8 +19,11 @@ async function disableAutomaticSidePanelAction(): Promise<void> {
   }
 }
 
-async function openNexusTab(): Promise<void> {
+async function openNexusTab(sourceTab?: chrome.tabs.Tab): Promise<void> {
   const nexusUrl = chrome.runtime.getURL('sidepanel.html');
+  if (sourceTab?.id !== undefined && sourceTab.url !== nexusUrl) {
+    await chrome.storage.session.set({ nexus_source_tab: sourceTab.id });
+  }
 
   try {
     const existing = await chrome.tabs.query({ url: nexusUrl });
@@ -51,7 +54,7 @@ async function openNexus(tab?: chrome.tabs.Tab): Promise<void> {
     }
   }
 
-  await openNexusTab();
+  await openNexusTab(tab);
 }
 
 function createMenu(properties: chrome.contextMenus.CreateProperties): void {

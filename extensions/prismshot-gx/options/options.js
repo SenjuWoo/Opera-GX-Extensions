@@ -6,7 +6,7 @@ const DEFAULTS = {
   overlayEnabled: true, showToasts: true, microContrast: false, trimLetterbox: false,
   includeTimestampWatermark: false, downloadFolder: 'PrismShot GX/{site}/{date}',
   filenameTemplate: '{title} - {time} - {width}x{height}', conflictAction: 'uniquify',
-  saveAs: false, historyLimit: 18, burstCount: 1, burstInterval: 650
+  saveAs: false, historyLimit: 18, burstCount: 1, burstInterval: 650, debugLog: false
 };
 
 const ids = [

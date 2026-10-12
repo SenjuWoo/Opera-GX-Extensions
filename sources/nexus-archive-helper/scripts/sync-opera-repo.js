@@ -13,14 +13,17 @@ if (!fs.existsSync(extensionRoot) || !fs.existsSync(toolsRoot)) {
   process.exit(2);
 }
 
-const verify = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'verify'], { cwd: root, stdio: 'inherit' });
+const verify = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'verify'], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' });
 if (verify.error) throw verify.error;
 if (verify.status !== 0) process.exit(verify.status || 1);
 
 const target = path.join(extensionRoot, 'nexus-archive-helper');
-fs.rmSync(target, { recursive: true, force: true });
-fs.cpSync(path.join(root, 'dist', 'extension'), target, { recursive: true });
-
-console.log(`Synced verified extension to ${target}`);
-console.log(`Signing key expected by the root builder: ${path.join(toolsRoot, 'keys', 'nexus-archive-helper.pem')}`);
-console.log('Next: run the repository root Build.cmd');
+(async () => {
+  const { syncRuntime } = await import('../../../tools/runtime-parity.mjs');
+  console.log(syncRuntime(path.join(root, 'dist', 'extension'), target));
+  console.log(`Signing key expected by the root builder: ${path.join(toolsRoot, 'keys', 'nexus-archive-helper.pem')}`);
+  console.log('Next: run the repository root Build.cmd');
+})().catch(error => {
+  console.error(error.message);
+  process.exitCode = 1;
+});

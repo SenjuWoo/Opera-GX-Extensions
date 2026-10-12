@@ -19,7 +19,7 @@
   const overlayWords = /(?:disable\s+your\s+adblock|turn\s+off\s+adblock|adblocker\s+detected|subscribe\s+to\s+continue)/i;
 
   function normalizedHost() {
-    return location.hostname.toLowerCase().replace(/^www\./, "");
+    return location.hostname.toLowerCase();
   }
 
   function domainMatches(host, domain) {

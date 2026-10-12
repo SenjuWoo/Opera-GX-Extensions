@@ -8,6 +8,8 @@ tools/keys/
 _archive/
 
 node_modules/
+__pycache__/
+**/_metadata/
 dist/
 *.log
 Thumbs.db

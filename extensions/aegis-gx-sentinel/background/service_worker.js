@@ -1,5 +1,6 @@
 const DEFAULTS = Object.freeze({
   enabled: true,
+  debugLog: false,
   profile: "hardened",
   feeds: {
     hageziTif: true,
@@ -143,6 +144,10 @@ let configCache = null;
 let threatSetCache = null;
 let feedUpdateInFlight = null;
 
+function debugLog(event, detail = {}) {
+  if (configCache?.debugLog) console.debug(`[Aegis ${chrome.runtime.getManifest().version}] ${event}`, detail);
+}
+
 const PROXY_SCHEMES = new Set(["http", "https", "socks4", "socks5"]);
 const RELAY_PROBES = Object.freeze([
   "https://www.gstatic.com/generate_204",
@@ -176,12 +181,13 @@ function unwrapIpv6Hostname(hostname) {
 
 function parseRelayHost(raw) {
   const text = String(raw || "").trim();
-  if (!text || text.length > 253 || /[\s/\\@]/.test(text)) return "";
+  if (!text || text.length > 253 || /[\s/\\@?#;*]/.test(text)) return "";
   try {
-    const bareIpv6 = text.includes(":") && !text.startsWith("[") && !text.includes(".");
+    if (text.startsWith("[") && !text.endsWith("]")) return "";
+    const bareIpv6 = text.includes(":") && !text.startsWith("[");
     const url = new URL(`https://${bareIpv6 ? `[${text}]` : text}`);
     if (url.username || url.password || url.port) return "";
-    return unwrapIpv6Hostname(url.hostname).toLowerCase();
+    return unwrapIpv6Hostname(normalizeTrustedHost(url.hostname));
   } catch {
     return "";
   }
@@ -244,7 +250,7 @@ function normalizeAdblockConfig(adblock) {
   out.cosmeticFiltering = out.cosmeticFiltering !== false;
   out.antiAdblockCleanup = out.antiAdblockCleanup !== false;
   out.sponsoredCleanup = out.sponsoredCleanup !== false;
-  out.allowlist = Array.from(new Set((Array.isArray(out.allowlist) ? out.allowlist : []).map(normalizeDomain).filter(Boolean))).sort();
+  out.allowlist = Array.from(new Set((Array.isArray(out.allowlist) ? out.allowlist : []).map(normalizeTrustedHost).filter(Boolean))).sort();
   out.youtube = mergeDeep(DEFAULTS.adblock.youtube, out.youtube || {});
   out.youtube.enabled = Boolean(out.youtube.enabled);
   out.youtube.mode = ["network", "adaptive", "aggressive"].includes(out.youtube.mode) ? out.youtube.mode : "network";
@@ -263,7 +269,8 @@ function endpointPacToken(endpoint) {
   return `PROXY ${address}`;
 }
 
-const PAC_LOCAL_BYPASS = 'var h = String(host || "").toLowerCase(); if (isPlainHostName(h) || h === "localhost" || dnsDomainIs(h, ".localhost") || dnsDomainIs(h, ".local") || shExpMatch(h, "127.*") || shExpMatch(h, "10.*") || shExpMatch(h, "192.168.*") || shExpMatch(h, "172.16.*") || shExpMatch(h, "172.17.*") || shExpMatch(h, "172.18.*") || shExpMatch(h, "172.19.*") || shExpMatch(h, "172.2?.*") || shExpMatch(h, "172.30.*") || shExpMatch(h, "172.31.*") || h === "::1" || h.indexOf("fc") === 0 || h.indexOf("fd") === 0 || h.indexOf("fe8") === 0 || h.indexOf("fe9") === 0 || h.indexOf("fea") === 0 || h.indexOf("feb") === 0) return "DIRECT";';
+const PAC_LOCAL_BYPASS = unwrapIpv6Hostname.toString() + "\n" + isIpHost.toString() + "\n" + isPrivateOrLocalHost.toString()
+  + '\nif (isPrivateOrLocalHost(host)) return "DIRECT";';
 
 function buildRelayPacScript(endpoint, relay) {
   const token = endpointPacToken(endpoint);
@@ -479,9 +486,7 @@ async function loadRelayCredential(endpointId, username, password) {
 
 async function applyPermissionFirewall(config) {
   // Trusted sites keep scripted downloads working despite the global block.
-  const allowPatterns = (config.allowlist || [])
-    .map(normalizeDomain).filter(Boolean)
-    .flatMap(entry => [`https://*.${entry}/*`, `https://${entry}/*`]);
+  const allowPatterns = trustedSitePatterns(config.allowlist);
   const entries = [
     [chrome.contentSettings?.notifications, config.privacy.blockNotifications, []],
     [chrome.contentSettings?.location, config.privacy.blockGeolocation, []],
@@ -489,21 +494,21 @@ async function applyPermissionFirewall(config) {
     [chrome.contentSettings?.microphone, config.privacy.blockMicrophone, []],
     [chrome.contentSettings?.automaticDownloads, config.privacy.blockAutomaticDownloads, allowPatterns]
   ];
-  await Promise.allSettled(entries.map(async ([setting, shouldBlock, patterns]) => {
+  await Promise.all(entries.map(async ([setting, shouldBlock, patterns]) => {
     if (!setting) return;
     await setting.clear({ scope: "regular" });
     if (config.enabled && shouldBlock) {
       await setting.set({ primaryPattern: "<all_urls>", setting: "block", scope: "regular" });
       for (const pattern of patterns) {
-        try { await setting.set({ primaryPattern: pattern, setting: "allow", scope: "regular" }); }
-        catch { /* pattern rejected on this Chromium */ }
+        await setting.set({ primaryPattern: pattern, setting: "allow", scope: "regular" });
       }
     }
   }));
 }
 
 async function panicWipe(hours = 1) {
-  const safeHours = Math.min(24 * 365, Math.max(0, Number(hours || 1)));
+  const requestedHours = Number(hours);
+  const safeHours = Number.isFinite(requestedHours) ? Math.min(24 * 365, Math.max(0, requestedHours)) : 1;
   const since = safeHours === 0 ? 0 : Date.now() - safeHours * 60 * 60 * 1000;
   await chrome.browsingData.remove({ since }, {
     cache: true,
@@ -525,6 +530,7 @@ async function panicWipe(hours = 1) {
 function mergeDeep(base, patch) {
   const out = structuredClone(base);
   for (const [key, value] of Object.entries(patch || {})) {
+    if (["__proto__", "prototype", "constructor"].includes(key)) continue;
     if (value && typeof value === "object" && !Array.isArray(value) && out[key] && typeof out[key] === "object" && !Array.isArray(out[key])) {
       out[key] = mergeDeep(out[key], value);
     } else {
@@ -550,12 +556,14 @@ async function getConfig(force = false) {
     configCache.adblock.antiAdblockCleanup = Boolean(stored.privacy.annoyanceCleanup);
   }
   configCache.adblock = normalizeAdblockConfig(configCache.adblock);
+  configCache.allowlist = Array.from(new Set((Array.isArray(configCache.allowlist) ? configCache.allowlist : []).map(normalizeTrustedHost).filter(Boolean))).sort();
   return configCache;
 }
 
 async function saveConfig(config) {
   configCache = mergeDeep(DEFAULTS, config);
   configCache.adblock = normalizeAdblockConfig(configCache.adblock);
+  configCache.allowlist = Array.from(new Set((Array.isArray(configCache.allowlist) ? configCache.allowlist : []).map(normalizeTrustedHost).filter(Boolean))).sort();
   delete configCache.feeds.hagezi;
   await chrome.storage.local.set({ config: configCache });
   return configCache;
@@ -580,13 +588,33 @@ function normalizeDomain(input) {
   return value;
 }
 
+// Feed parsing deliberately rejects localhost; user-entered trust must accept it.
+function normalizeTrustedHost(input) {
+  if (typeof input !== "string") return "";
+  const value = input.trim().replace(/^\*\./, "");
+  if (!value || /[\s\\]/.test(value)) return "";
+  try {
+    const url = new URL(value.includes("://") ? value : `http://${value}`);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return "";
+    const host = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (host.startsWith("[")) return host;
+    if (host.length > 253 || !host.split(".").every(label => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) return "";
+    return host;
+  } catch { return ""; }
+}
+
+function trustedSitePatterns(allowlist) {
+  return Array.from(new Set((Array.isArray(allowlist) ? allowlist : []).map(normalizeTrustedHost).filter(Boolean)))
+    .flatMap(host => isIpHost(host) ? [`*://${host}/*`] : [`*://*.${host}/*`]);
+}
+
 // Single matcher every trusted-site check routes through. An allowlist entry
 // covers the domain and all its subdomains.
 function isAllowlistedHost(config, hostname) {
   const host = String(hostname || "").toLowerCase();
   if (!host) return false;
   return (config.allowlist || []).some(item => {
-    const entry = normalizeDomain(item);
+    const entry = normalizeTrustedHost(item);
     return Boolean(entry) && (host === entry || host.endsWith(`.${entry}`));
   });
 }
@@ -650,8 +678,8 @@ function domainBatches(domains, size = DYNAMIC_BATCH_SIZE) {
 function buildDynamicRules(threatDomains, adDomains, config) {
   const rules = [];
   let id = DYNAMIC_RULE_BASE;
-  const fullAllowlist = Array.from(new Set((config.allowlist || []).map(normalizeDomain).filter(Boolean)));
-  const adAllowlist = Array.from(new Set((config.adblock?.allowlist || []).map(normalizeDomain).filter(Boolean)));
+  const fullAllowlist = Array.from(new Set((config.allowlist || []).map(normalizeTrustedHost).filter(Boolean)));
+  const adAllowlist = Array.from(new Set((config.adblock?.allowlist || []).map(normalizeTrustedHost).filter(Boolean)));
 
   for (const batch of domainBatches(fullAllowlist, 500)) {
     rules.push({
@@ -710,7 +738,7 @@ async function installDynamicRules(threatDomains, adDomains, config) {
 async function updateThreatFeeds(reason = "manual") {
   if (feedUpdateInFlight) return feedUpdateInFlight;
   feedUpdateInFlight = (async () => {
-    const config = await getConfig();
+    let config = await getConfig();
     const stored = await chrome.storage.local.get(["feedCache", "feedDomains", "threatDomains", "adDomains"]);
     const feedCache = stored.feedCache && typeof stored.feedCache === "object" ? stored.feedCache : {};
     delete feedCache.hagezi;
@@ -739,40 +767,48 @@ async function updateThreatFeeds(reason = "manual") {
       }
     }
 
-    for (const [key, cachedDomains] of Object.entries(feedCache)) {
-      const source = FEEDS[key];
-      if (!source || !sourceEnabled(key, source) || !Array.isArray(cachedDomains)) continue;
-      const target = source.kind === "ad" ? adDomains : threatDomains;
-      for (const domain of cachedDomains) {
-        const normalized = normalizeDomain(domain);
-        if (normalized) target.add(normalized);
+    let effectiveThreats;
+    do {
+      // Fetching can outlive a settings save; compile only the current preferences.
+      config = await getConfig();
+      threatDomains.clear();
+      adDomains.clear();
+      for (const [key, cachedDomains] of Object.entries(feedCache)) {
+        const source = FEEDS[key];
+        if (!source || !sourceEnabled(key, source) || !Array.isArray(cachedDomains)) continue;
+        const target = source.kind === "ad" ? adDomains : threatDomains;
+        for (const domain of cachedDomains) {
+          const normalized = normalizeDomain(domain);
+          if (normalized) target.add(normalized);
+        }
       }
-    }
 
-    if (!threatDomains.size && errors.length) {
-      for (const domain of stored.threatDomains || stored.feedDomains || []) {
-        const normalized = normalizeDomain(domain);
-        if (normalized) threatDomains.add(normalized);
+      if (!threatDomains.size && errors.length && Object.entries(FEEDS).some(([key, source]) => source.kind === "threat" && sourceEnabled(key, source))) {
+        for (const domain of stored.threatDomains || stored.feedDomains || []) {
+          const normalized = normalizeDomain(domain);
+          if (normalized) threatDomains.add(normalized);
+        }
       }
-    }
-    if (!adDomains.size && errors.length && config.adblock?.enabled) {
-      for (const domain of stored.adDomains || []) {
-        const normalized = normalizeDomain(domain);
-        if (normalized) adDomains.add(normalized);
+      if (!adDomains.size && errors.length && config.adblock?.enabled && config.adblock.hageziAds) {
+        for (const domain of stored.adDomains || []) {
+          const normalized = normalizeDomain(domain);
+          if (normalized) adDomains.add(normalized);
+        }
       }
-    }
 
-    const effectiveThreats = config.security.knownThreats ? new Set(threatDomains) : new Set();
-    for (const domain of config.customBlocklist.map(normalizeDomain).filter(Boolean)) effectiveThreats.add(domain);
-    const normalizedAllow = new Set(config.allowlist.map(normalizeDomain).filter(Boolean));
-    for (const domain of normalizedAllow) effectiveThreats.delete(domain);
+      effectiveThreats = config.security.knownThreats ? new Set(threatDomains) : new Set();
+      for (const domain of config.customBlocklist.map(normalizeDomain).filter(Boolean)) effectiveThreats.add(domain);
+      const normalizedAllow = new Set(config.allowlist.map(normalizeTrustedHost).filter(Boolean));
+      for (const domain of normalizedAllow) effectiveThreats.delete(domain);
 
-    await installDynamicRules(effectiveThreats, adDomains, config);
+      await installDynamicRules(effectiveThreats, adDomains, config);
+    } while (config !== configCache);
     threatSetCache = effectiveThreats;
     config.stats.domainsLoaded = effectiveThreats.size;
     config.stats.adDomainsLoaded = config.adblock?.enabled ? adDomains.size : 0;
     if (successfulSources > 0) config.stats.lastFeedUpdate = Date.now();
     config.stats.lastFeedError = errors.join(" | ");
+    configCache = config;
     await chrome.storage.local.set({
       config,
       feedCache,
@@ -787,7 +823,6 @@ async function updateThreatFeeds(reason = "manual") {
       }
     });
     await chrome.storage.local.remove("feedDomains");
-    configCache = config;
     await updateBadgeForAllTabs();
     return {
       ok: errors.length === 0,
@@ -810,8 +845,10 @@ async function getThreatSet() {
 
 function isPrivateOrLocalHost(hostname) {
   if (!hostname) return true;
-  const bareHost = unwrapIpv6Hostname(hostname);
+  const bareHost = unwrapIpv6Hostname(hostname).toLowerCase().replace(/\.$/, "");
+  if (!bareHost.includes(".") && !bareHost.includes(":")) return true;
   if (bareHost === "localhost" || bareHost.endsWith(".localhost") || bareHost.endsWith(".local")) return true;
+  if (!isIpHost(bareHost)) return false;
   if (/^127\./.test(bareHost) || /^10\./.test(bareHost) || /^192\.168\./.test(bareHost)) return true;
   const match = bareHost.match(/^172\.(\d+)\./);
   if (match && Number(match[1]) >= 16 && Number(match[1]) <= 31) return true;
@@ -919,7 +956,7 @@ async function checkNavigation(details) {
   if (!config.enabled) return;
 
   const analysis = analyzeUrl(details.url);
-  if (!analysis.hostname || config.allowlist.some(item => analysis.hostname === normalizeDomain(item) || analysis.hostname.endsWith(`.${normalizeDomain(item)}`))) return;
+  if (!analysis.hostname || isAllowlistedHost(config, analysis.hostname)) return;
   if (await isBypassed(details.tabId, analysis.hostname)) return;
 
   if (config.security.knownThreats || config.customBlocklist.length > 0) {
@@ -1026,8 +1063,7 @@ async function applyContentGuards(config) {
       persistAcrossSessions: true
     };
     // Trusted sites are exempt: window.open stays stock there.
-    const excluded = (config.allowlist || []).map(normalizeDomain).filter(Boolean)
-      .flatMap(entry => [`https://*.${entry}/*`, `https://${entry}/*`, `http://*.${entry}/*`, `http://${entry}/*`]);
+    const excluded = trustedSitePatterns(config.allowlist);
     if (excluded.length) popupScript.excludeMatches = excluded;
     scripts.push(popupScript);
   }
@@ -1123,7 +1159,7 @@ async function applyConfiguration(config, rebuildRules = true) {
     }
 
     for (const domain of config.customBlocklist.map(normalizeDomain).filter(Boolean)) threats.add(domain);
-    for (const domain of config.allowlist.map(normalizeDomain).filter(Boolean)) threats.delete(domain);
+    for (const domain of config.allowlist.map(normalizeTrustedHost).filter(Boolean)) threats.delete(domain);
     threatSetCache = threats;
     config.stats.domainsLoaded = threats.size;
     config.stats.adDomainsLoaded = config.adblock.enabled ? ads.size : 0;
@@ -1134,6 +1170,7 @@ async function applyConfiguration(config, rebuildRules = true) {
   await saveConfig(config);
   await Promise.all([scheduleFeedUpdates(config), scheduleRelayBenchmarks(config)]);
   await updateBadgeForAllTabs();
+  debugLog("configuration applied", { enabled: config.enabled, profile: config.profile, trustedSites: config.allowlist.length, blockAutomaticDownloads: config.privacy.blockAutomaticDownloads, relayEnabled: config.relay.enabled });
   return config;
 }
 
@@ -1285,6 +1322,7 @@ async function clearAllYoutubeBypasses() {
 
 async function initialize() {
   let config = await getConfig(true);
+  debugLog("startup", { enabled: config.enabled, profile: config.profile });
   await saveConfig(config);
   await applyConfiguration(config, false);
   await chrome.contextMenus.removeAll();
@@ -1339,7 +1377,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     await chrome.tabs.create({ url: report.toString(), index: (tab?.index ?? 0) + 1 });
   }
   if (info.menuItemId === "aegis-trust-site" && tab?.url) {
-    const host = normalizeDomain(new URL(tab.url).hostname);
+    const host = normalizeTrustedHost(tab.url);
     if (!host) return;
     const config = await getConfig();
     config.allowlist = Array.from(new Set([...config.allowlist, host]));
@@ -1413,6 +1451,16 @@ if (chrome.webRequest?.onAuthRequired) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
+    if (sender.tab && !["GET_STATE", "CONTENT_STATS", "YOUTUBE_ANTI_ADBLOCK_DETECTED", "YOUTUBE_AD_HANDLED"].includes(message?.type)
+        && !sender.url?.startsWith(chrome.runtime.getURL(""))) {
+      throw new Error("This action requires an Aegis extension page.");
+    }
+    if (message?.type?.startsWith("YOUTUBE_") && sender.tab) {
+      const host = normalizeTrustedHost(sender.url);
+      if (!host || !YOUTUBE_INITIATORS.some(domain => host === domain || host.endsWith(`.${domain}`))) {
+        throw new Error("YouTube reports require a YouTube page.");
+      }
+    }
     switch (message?.type) {
       case "GET_STATE": {
         const config = await getConfig();
@@ -1421,7 +1469,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           try { tab = await chrome.tabs.get(message.tabId); } catch { /* closed */ }
         }
         let host = "";
-        try { host = tab?.url ? normalizeDomain(new URL(tab.url).hostname) : ""; } catch { /* ignored */ }
+        try { host = tab?.url ? normalizeTrustedHost(tab.url) : ""; } catch { /* ignored */ }
         const riskData = message.tabId != null ? await chrome.storage.session.get([`risk:${message.tabId}`]) : {};
         let proxyControl = { available: false, levelOfControl: "not_controllable", value: null };
         try { proxyControl = await proxyControlState(); } catch { /* unsupported browser surface */ }
@@ -1629,10 +1677,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "TOGGLE_ADBLOCK_SITE": {
-        const domain = normalizeDomain(message.domain);
+        const domain = normalizeTrustedHost(message.domain);
         const config = await getConfig();
         if (!domain) throw new Error("Invalid domain");
-        const set = new Set(config.adblock.allowlist.map(normalizeDomain).filter(Boolean));
+        const set = new Set(config.adblock.allowlist.map(normalizeTrustedHost).filter(Boolean));
         if (set.has(domain)) set.delete(domain); else set.add(domain);
         config.adblock.allowlist = Array.from(set).sort();
         await applyConfiguration(config);
@@ -1667,10 +1715,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "TOGGLE_SITE": {
-        const domain = normalizeDomain(message.domain);
+        const domain = normalizeTrustedHost(message.domain);
         const config = await getConfig();
         if (!domain) throw new Error("Invalid domain");
-        const set = new Set(config.allowlist.map(normalizeDomain).filter(Boolean));
+        const set = new Set(config.allowlist.map(normalizeTrustedHost).filter(Boolean));
         if (set.has(domain)) set.delete(domain); else set.add(domain);
         config.allowlist = Array.from(set).sort();
         threatSetCache = null;
@@ -1679,7 +1727,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "PROCEED_ONCE": {
-        const host = normalizeDomain(message.hostname);
+        const host = normalizeTrustedHost(message.hostname);
         if (!host || message.tabId == null) throw new Error("Invalid bypass request");
         await chrome.storage.session.set({ [`bypass:${message.tabId}:${host}`]: Date.now() + 10 * 60 * 1000 });
         await chrome.tabs.update(message.tabId, { url: message.target });
@@ -1687,7 +1735,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         break;
       }
       case "TRUST_DOMAIN": {
-        const host = normalizeDomain(message.hostname);
+        const host = normalizeTrustedHost(message.hostname);
         const config = await getConfig();
         if (!host) throw new Error("Invalid domain");
         config.allowlist = Array.from(new Set([...config.allowlist, host])).sort();
@@ -1717,6 +1765,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       default:
         sendResponse({ ok: false, error: "Unknown message" });
     }
-  })().catch(error => sendResponse({ ok: false, error: error.message }));
+  })().catch(error => {
+    console.error("Aegis request failed:", message?.type, error.message);
+    sendResponse({ ok: false, error: error.message });
+  });
   return true;
 });

@@ -11,6 +11,8 @@ import hashlib
 import importlib.util
 import ipaddress
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import math
 import os
 import random
@@ -31,7 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, BinaryIO
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 HOST = "127.0.0.1"
 PORT = 17891
 ROOT = Path(__file__).resolve().parent
@@ -57,6 +59,8 @@ _KNOWN_MEDIA_EXT = re.compile(
 JOBS: dict[str, "Job"] = {}
 JOBS_LOCK = threading.Lock()
 _TOOL_CAPABILITIES: dict[str, Any] = {}
+LOGGER = logging.getLogger("nebulagrab")
+LOGGER.addHandler(logging.NullHandler())
 
 
 @dataclass
@@ -111,6 +115,7 @@ def load_config() -> dict[str, Any]:
         "impersonate_generic": True,
         "keep_failed_cache": True,
         "captured_fragment_limit": 12000,
+        "debug_log": False,
     }
     if CONFIG_PATH.exists():
         try:
@@ -119,9 +124,13 @@ def load_config() -> dict[str, Any]:
                 for key in config:
                     if key in loaded and loaded[key] not in (None, ""):
                         config[key] = loaded[key]
-        except (OSError, json.JSONDecodeError):
-            pass
-    CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Could not read {CONFIG_PATH.name}; existing configuration was preserved: {exc}") from exc
+        if not isinstance(loaded, dict):
+            raise RuntimeError(f"{CONFIG_PATH.name} must contain a JSON object; existing configuration was preserved.")
+    temp = CONFIG_PATH.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    temp.replace(CONFIG_PATH)
     return config
 
 
@@ -228,7 +237,7 @@ def unique_output(filename: str) -> Path:
     path = OUTPUT_DIR / clean
     stem, suffix = path.stem, path.suffix
     index = 2
-    while path.exists():
+    while path.exists() or any(Path(job.output) == path and job.status in {"queued", "running"} for job in JOBS.values()):
         path = OUTPUT_DIR / f"{stem} ({index}){suffix}"
         index += 1
     return path
@@ -239,7 +248,11 @@ def stable_url_identity(value: str) -> str:
         parsed = urllib.parse.urlsplit(value)
         if parsed.scheme not in {"http", "https"}:
             return value
-        return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, "", ""))
+        query = urllib.parse.urlencode([
+            (key, item) for key, item in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+            if not re.fullmatch(r"token|signature|sig|expires|expiry|policy|key-pair-id|x-amz-.+|x-goog-.+", key, re.I)
+        ])
+        return urllib.parse.urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path, query, ""))
     except Exception:  # noqa: BLE001
         return value
 
@@ -409,10 +422,22 @@ def validate_remote_url(url: str) -> str:
 class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req: urllib.request.Request, fp: BinaryIO, code: int, msg: str, headers: email.message.Message, newurl: str) -> urllib.request.Request | None:
         safe = validate_remote_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, safe)
+        redirected = super().redirect_request(req, fp, code, msg, headers, safe)
+        if redirected is not None:
+            redirected.headers = headers_for_url(redirected.headers, req.full_url, safe)
+        return redirected
 
 
 OPENER = urllib.request.build_opener(SafeRedirectHandler())
+
+
+def headers_for_url(headers: dict[str, str], source: str, target: str) -> dict[str, str]:
+    def origin(value: str) -> tuple[str, str | None, int]:
+        parsed = urllib.parse.urlsplit(value)
+        return parsed.scheme.lower(), parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)
+    if origin(source) == origin(target):
+        return dict(headers)
+    return {key: value for key, value in headers.items() if key.lower() not in SENSITIVE_HEADERS}
 
 
 def safe_request_headers(raw: Any, referrer: str = "") -> dict[str, str]:
@@ -492,7 +517,7 @@ def inspect_hls(url: str, referrer: str = "", headers: dict[str, str] | None = N
             nested.append(resolved)
 
     for child in nested:
-        result = inspect_hls(child, referrer or final_url, headers, visited, depth + 1)
+        result = inspect_hls(child, referrer or final_url, headers_for_url(headers or {}, url, child), visited, depth + 1)
         if result["encrypted"] or result["drm"]:
             return result
 
@@ -536,6 +561,8 @@ def update_job(job_id: str, **changes: Any) -> None:
         for key, value in changes.items():
             setattr(job, key, value)
         job.updated_at = time.time()
+    if "status" in changes or changes.get("error"):
+        LOGGER.debug("Job %s: %s", job_id, {key: value for key, value in changes.items() if key in {"status", "mode", "backend", "error"}})
 
 
 def append_job_log(job_id: str, line: str) -> None:
@@ -548,6 +575,7 @@ def append_job_log(job_id: str, line: str) -> None:
             return
         job.log_tail = (job.log_tail + [clean])[-12:]
         job.updated_at = time.time()
+    LOGGER.debug("Job %s: %s", job_id, clean)
 
 
 def retry_sleep(attempt: int, cap: float = 30.0) -> None:
@@ -556,11 +584,14 @@ def retry_sleep(attempt: int, cap: float = 30.0) -> None:
 
 
 def parse_content_range(value: str) -> tuple[int, int, int | None] | None:
-    match = re.match(r"bytes\s+(\d+)-(\d+)/(\d+|\*)", value or "", re.I)
+    match = re.fullmatch(r"bytes\s+(\d+)-(\d+)/(\d+|\*)", (value or "").strip(), re.I)
     if not match:
         return None
     start, end, total = match.groups()
-    return int(start), int(end), None if total == "*" else int(total)
+    first, last, length = int(start), int(end), None if total == "*" else int(total)
+    if last < first or (length is not None and last >= length):
+        return None
+    return first, last, length
 
 
 def probe_remote(url: str, headers: dict[str, str]) -> dict[str, Any]:
@@ -622,7 +653,7 @@ def download_range_chunk(job_id: str, url: str, headers: dict[str, str], chunk_p
                 if response.status != 206:
                     raise RangeUnsupported(f"Server ignored byte-range request with HTTP {response.status}.")
                 parsed = parse_content_range(response.headers.get("Content-Range", ""))
-                if not parsed or parsed[0] != request_start:
+                if not parsed or parsed[0] != request_start or parsed[1] != end:
                     raise RangeUnsupported("Server returned an invalid Content-Range.")
                 chunk_path.parent.mkdir(parents=True, exist_ok=True)
                 pending_sync = 0
@@ -735,7 +766,7 @@ def run_sequential_direct(job_id: str, url: str, headers: dict[str, str], output
         if total is not None and existing > int(total):
             partial.unlink(missing_ok=True)
             existing = 0
-        request_headers = dict(headers)
+        request_headers = {key: value for key, value in headers.items() if key.lower() != "range"}
         if existing:
             request_headers["Range"] = f"bytes={existing}-"
             validator = str(probe.get("etag") or probe.get("last_modified") or "")
@@ -749,6 +780,10 @@ def run_sequential_direct(job_id: str, url: str, headers: dict[str, str], output
                     existing = 0
                     append = False
                 content_range = parse_content_range(response.headers.get("Content-Range", ""))
+                if response.status == 206 and (not content_range or content_range[0] != existing or content_range[1] < content_range[0]):
+                    raise IOError("Server returned an invalid Content-Range for the resumed download.")
+                if response.status not in {200, 206}:
+                    raise IOError(f"Unexpected direct-download HTTP status {response.status}.")
                 if content_range and content_range[2]:
                     total = content_range[2]
                 elif total is None:
@@ -778,8 +813,8 @@ def run_sequential_direct(job_id: str, url: str, headers: dict[str, str], output
                         )
                     target.flush()
                     os.fsync(target.fileno())
-                if total is not None and existing < total:
-                    raise IOError(f"Connection ended early ({existing}/{total} bytes).")
+                if total is not None and existing != total:
+                    raise IOError(f"Download size mismatch ({existing}/{total} bytes).")
                 output.parent.mkdir(parents=True, exist_ok=True)
                 partial.replace(output)
                 shutil.rmtree(root, ignore_errors=True)
@@ -794,13 +829,13 @@ def run_sequential_direct(job_id: str, url: str, headers: dict[str, str], output
 def run_direct(job_id: str, payload: dict[str, Any]) -> None:
     url = str(payload["url"])
     referrer = str(payload.get("referrer") or "")
-    headers = safe_request_headers(payload.get("headers"), referrer)
+    headers = {key: value for key, value in safe_request_headers(payload.get("headers"), referrer).items() if key.lower() != "range"}
     output = Path(JOBS[job_id].output)
     root = Path(str(payload["_cache_root"]))
     update_job(job_id, status="running", mode="direct", attempt=1, cache_path=str(root))
     try:
         probe = probe_remote(url, headers)
-        url = str(probe.get("final_url") or url)
+        # Repeat the original redirect chain so credential stripping still applies.
         prepare_cache_root(root, probe, payload)
         if probe.get("ranges") and probe.get("total") and int(probe["total"]) >= 8 * 1024 * 1024:
             try:
@@ -913,11 +948,15 @@ def validate_segment_continuity(entries: list[dict[str, Any]]) -> None:
     sequences = sorted({int(entry["sequence"]) for entry in entries if not entry["init"] and entry.get("sequence") is not None})
     if len(sequences) < 2:
         return
-    sequence_set = set(sequences)
-    missing = [value for value in range(sequences[0], sequences[-1] + 1) if value not in sequence_set]
-    if missing:
+    gaps = [(left + 1, right) for left, right in zip(sequences, sequences[1:]) if right > left + 1]
+    if gaps:
+        missing = []
+        for start, end in gaps:
+            missing.extend(range(start, min(end, start + 12 - len(missing))))
+            if len(missing) == 12:
+                break
         preview = ", ".join(str(value) for value in missing[:12])
-        suffix = "…" if len(missing) > 12 else ""
+        suffix = "…" if sum(end - start for start, end in gaps) > 12 else ""
         raise RuntimeError(f"Captured fragment family is incomplete; missing sequence numbers: {preview}{suffix}. Replay or seek through the full video, or use Smart Fetch so the manifest can supply every fragment.")
 
 
@@ -994,7 +1033,10 @@ def download_captured_fragment(job_id: str, entry: dict[str, Any], destination: 
             if captured_range:
                 absolute_start, absolute_end = captured_range
                 expected_length = (absolute_end - absolute_start + 1) if absolute_end is not None else expected_length
-                if expected_length is not None and existing >= expected_length:
+                if expected_length is not None and existing > expected_length:
+                    partial.unlink(missing_ok=True)
+                    existing = 0
+                if expected_length is not None and existing == expected_length:
                     partial.replace(destination)
                     with lock:
                         state["done"] += 1
@@ -1014,8 +1056,8 @@ def download_captured_fragment(job_id: str, entry: dict[str, Any], destination: 
                     partial.unlink(missing_ok=True)
                     raise IOError("Server ignored the fragment resume range; restarting this fragment.")
                 content_range = parse_content_range(response.headers.get("Content-Range", ""))
-                if response.status == 206 and content_range and content_range[0] != request_start:
-                    raise IOError(f"Fragment range mismatch: requested {request_start}, received {content_range[0]}.")
+                if response.status == 206 and (not content_range or content_range[0] != request_start or (request_end is not None and content_range[1] != request_end)):
+                    raise IOError(f"Fragment response does not match the requested byte range beginning at {request_start}.")
                 if expected_length is None:
                     content_length = response.headers.get("Content-Length")
                     if content_length and content_length.isdigit():
@@ -1034,8 +1076,8 @@ def download_captured_fragment(job_id: str, entry: dict[str, Any], destination: 
                             update_job(job_id, bytes_downloaded=state["bytes"], progress=min(99.0, state["done"] / max(1, state["total"]) * 100.0))
                     target.flush()
                     os.fsync(target.fileno())
-                if expected_length is not None and written < expected_length:
-                    raise IOError(f"Fragment ended early ({written}/{expected_length} bytes).")
+                if expected_length is not None and written != expected_length:
+                    raise IOError(f"Fragment size mismatch ({written}/{expected_length} bytes).")
                 partial.replace(destination)
                 with lock:
                     state["done"] += 1
@@ -1129,7 +1171,11 @@ def run_captured_segments(job_id: str, payload: dict[str, Any]) -> None:
         return
     root = Path(str(payload.get("_cache_root") or CACHE_DIR / "jobs" / stable_cache_key(payload)))
     root.mkdir(parents=True, exist_ok=True)
-    families = normalize_fragment_families(payload)
+    try:
+        families = normalize_fragment_families(payload)
+    except (ValueError, RuntimeError) as exc:
+        update_job(job_id, status="failed", error=str(exc))
+        return
     if not families:
         update_job(job_id, status="failed", error="No captured fragments were supplied. Replay the video, rescan, or use Smart Fetch.")
         return
@@ -1668,6 +1714,15 @@ def main() -> int:
     if args.show_token:
         print(CONFIG["token"])
         return 0
+
+    if CONFIG.get("debug_log") is True:
+        log_root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local" / "state") / "NebulaGrab" / "Logs"
+        log_root.mkdir(parents=True, exist_ok=True)
+        handler = RotatingFileHandler(log_root / "companion.log", maxBytes=1024 * 1024, backupCount=1, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        LOGGER.addHandler(handler)
+        LOGGER.setLevel(logging.DEBUG)
+        LOGGER.debug("Startup version=%s port=%s output=%s cache=%s workers=%s private_network=%s", VERSION, args.port, OUTPUT_DIR, CACHE_DIR, CONFIG["direct_workers"], ALLOW_PRIVATE)
 
     print(f"NebulaGrab Companion v{VERSION}")
     print(f"Listening on http://{HOST}:{args.port}")

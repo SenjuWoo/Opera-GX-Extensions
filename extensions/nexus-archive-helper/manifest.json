@@ -1,7 +1,8 @@
 {
   "manifest_version": 3,
+  "minimum_chrome_version": "103",
   "name": "Nexus Archive Helper",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Find and resolve archived, old, hidden-page, and deleted-category Nexus Mods files through official Nexus API and download flows.",
   "permissions": [
     "storage",

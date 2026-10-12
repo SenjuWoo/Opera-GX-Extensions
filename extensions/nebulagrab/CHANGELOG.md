@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.2
+
+- Keep concurrent session hydration from losing media or restoring a cleared tab; restore items before download/analyze actions after worker suspension.
+- Restrict companion pairing to loopback origins and reject redirects that could leak the pairing token.
+- Keep captured Cookie/Authorization values out of newly persisted segment state.
+- Stop collecting and clear transient request credentials when network capture is disabled; reject invalid page-supplied media kinds.
+- Preserve content query parameters in cache identities, while allowing signed-link token/expiry renewal.
+- Report failed blob downloads and persist manifest analysis updates.
+- Stop waiting for a cloned fetch stream to finish before reporting a sniffed manifest; skip binary media sniffing.
+- Add optional local debug console records, disabled by default.
+
 ## 1.3.1
 
 Fixed

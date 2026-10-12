@@ -1,4 +1,4 @@
-# NebulaGrab Companion 1.3.0
+# NebulaGrab Companion 1.3.1
 
 NebulaGrab Companion is the localhost-only reliability and extraction engine for the Opera GX extension. It handles direct image/audio/video files, unencrypted HLS/DASH, captured segment families, and Smart Fetch page extraction through yt-dlp.
 
@@ -16,6 +16,10 @@ It does not apply content-category filtering. Ordinary and adult sites are treat
 Downloads go to `%USERPROFILE%\Downloads\NebulaGrab`. Resumable state goes to `%USERPROFILE%\.nebulagrab-cache`.
 
 `config.json` is generated on first run with a unique token. Do not distribute that file. `config.example.json` documents available tuning options.
+
+Set `"debug_log": true` in `config.json` and restart the companion to enable a rotating local log at `%LOCALAPPDATA%\NebulaGrab\Logs\companion.log` (1 MiB plus one backup). Debug logging is off by default. Pairing tokens and captured sensitive headers are not included in startup records.
+
+Regression checks: run `python -m unittest discover -s tests -v` from this folder. Tests use an isolated temporary configuration and output/cache directories.
 
 ## Direct-file cache
 

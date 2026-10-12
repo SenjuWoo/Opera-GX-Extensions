@@ -1,10 +1,18 @@
 importScripts('core.js', 'browser-resolver.js');
 const C = globalThis.NexusArchiveCore;
 const R = globalThis.NexusArchiveResolver;
-const APP_HEADERS = { Accept: 'application/json', 'Application-Name': 'Nexus Archive Helper Personal', 'Application-Version': '1.1.1' };
+const APP_HEADERS = { Accept: 'application/json', 'Application-Name': 'Nexus Archive Helper Personal', 'Application-Version': '1.1.2' };
 let lastQuota = { hourlyRemaining: null, dailyRemaining: null, hourlyLimit: null, dailyLimit: null };
+let debug = false;
+const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).then(async () => {
+  const saved = await chrome.storage.local.get('debug');
+  debug = saved.debug === true;
+  if (debug) console.debug('Nexus Archive Helper', '1.1.2', 'startup', { apiOrigin: 'https://api.nexusmods.com', timeoutMs: 30000 });
+});
+storageReady.catch((error) => console.error('Nexus Archive Helper: storage isolation failed', error));
 
 async function getApiKey() {
+  await storageReady;
   const { apiKey = '' } = await chrome.storage.local.get('apiKey');
   return String(apiKey).trim();
 }
@@ -15,7 +23,12 @@ function quotaNumber(headers, name) {
 async function apiRequest(url) {
   const key = await getApiKey();
   if (!key) throw { status: 0, data: { message: 'Add your Nexus Personal API key in Settings first.' } };
-  const response = await fetch(url, { method: 'GET', headers: { ...APP_HEADERS, apikey: key } });
+  const target = new URL(url);
+  if (target.origin !== 'https://api.nexusmods.com' || !target.pathname.startsWith('/v1/') || target.username || target.password) {
+    throw new Error('Refusing to send an API key outside the official Nexus API.');
+  }
+  const response = await fetch(url, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(30000), headers: { ...APP_HEADERS, apikey: key } });
+  if (debug) console.debug('Nexus Archive Helper: API response', target.pathname, response.status);
   lastQuota = {
     hourlyRemaining: quotaNumber(response.headers, 'x-rl-hourly-remaining'),
     dailyRemaining: quotaNumber(response.headers, 'x-rl-daily-remaining'),
@@ -66,8 +79,15 @@ chrome.contextMenus.onClicked.addListener((info) => {
   openHelper(info.linkUrl || info.pageUrl || '').catch(() => {});
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
+    await storageReady;
+    const popupUrl = chrome.runtime.getURL('popup.html');
+    const trustedUi = sender.id === chrome.runtime.id && (sender.url === popupUrl || sender.url?.startsWith(`${popupUrl}?`));
+    const contentPage = sender.id === chrome.runtime.id && /^https:\/\/www\.nexusmods\.com\/[^/]+\/mods\/\d+(?:[/?#]|$)/.test(sender.url || '');
+    if (!message || typeof message !== 'object' || (!trustedUi && !(contentPage && ['SCAN_PAGE', 'OPEN_POPUP'].includes(message.type)))) {
+      throw new Error('This request is not permitted from the page.');
+    }
     switch (message.type) {
       case 'SAVE_KEY':
         await chrome.storage.local.set({ apiKey: String(message.apiKey || '').trim() });
@@ -87,16 +107,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         return { ok: true };
       case 'RESOLVE':
       case 'SCAN_PAGE':
-        return { ok: true, result: await resolveAndRecord(message.reference), quota: lastQuota };
+        return { ok: true, result: await resolveAndRecord(trustedUi ? message.reference : sender.url), quota: lastQuota };
       case 'DOWNLOAD': {
         const ref = C.parseReference(message.reference);
         return { ok: true, result: await R.resolveDownload(ref, Number(message.fileId), apiRequest), quota: lastQuota };
       }
       case 'OPEN_POPUP':
-        return openHelper(message.reference, message.view);
+        return openHelper(trustedUi ? message.reference : sender.url, message.view);
       default:
         throw new Error('Unknown message type.');
     }
-  })().then(sendResponse).catch((err) => sendResponse({ ok: false, error: C.errorMessage(err), quota: lastQuota }));
+  })().then(sendResponse).catch((err) => {
+    console.error('Nexus Archive Helper: request failed', C.errorMessage(err));
+    sendResponse({ ok: false, error: C.errorMessage(err), quota: lastQuota });
+  });
   return true;
 });

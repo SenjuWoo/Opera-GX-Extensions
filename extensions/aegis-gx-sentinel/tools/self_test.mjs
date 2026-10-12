@@ -19,10 +19,11 @@ function evaluate(expression, values = {}) {
 }
 
 const hostCases = [
-  ["fckeditor.com", false], ["fdic.gov", false], ["fc00::1", true],
+  ["fckeditor.com", false], ["fdic.gov", false], ["fcc.gov", false], ["fc00::1", true],
   ["fd12::1", true], ["fe80::1", true], ["[::1]", true],
   ["192.168.1.2", true], ["172.31.2.3", true], ["172.32.2.3", false],
-  ["8.8.8.8", false]
+  ["8.8.8.8", false], ["127.0.0.1.evil.test", false], ["10.evil.test", false],
+  ["192.168.1.evil.test", false], ["intranet", true]
 ];
 for (const [host, expected] of hostCases) {
   const actual = evaluate("isPrivateOrLocalHost(__host)", { __host: host });
@@ -69,6 +70,12 @@ if (endpoint.host !== "2001:db8::1" || endpoint.scheme !== "socks5" || endpoint.
 }
 const badPort = evaluate("sanitizeEndpoint({scheme:'https',host:'relay.example',port:12.5}, 0)");
 if (badPort.port !== 443) throw new Error(`Invalid relay port did not fall back safely: ${badPort.port}`);
+for (const host of ["relay.example;DIRECT;", "relay.example:443;DIRECT", "relay.example:443", "[::1]:443", "relay.example/path", "relay..example", "bad host", "[not:ipv6]", "*.relay.example", "relay.example?x"]) {
+  const invalid = evaluate("sanitizeEndpoint({scheme:'https',host:__host,port:443})", { __host: host });
+  if (invalid.host) throw new Error(`Invalid relay hostname was accepted: ${host}`);
+}
+const internationalHost = evaluate("sanitizeEndpoint({host:'münchen.example',scheme:'https',port:443}).host");
+if (internationalHost !== "xn--mnchen-3ya.example") throw new Error(`Valid IDN relay hostname failed: ${internationalHost}`);
 
 const failClosedPac = evaluate("buildRelayPacScript(__endpoint, {failClosed:true,bypassLocal:true})", { __endpoint: endpoint });
 const pacContext = vm.createContext({
@@ -81,6 +88,11 @@ const publicRoute = vm.runInContext("FindProxyForURL('https://example.com/', 'ex
 const localRoute = vm.runInContext("FindProxyForURL('http://192.168.1.1/', '192.168.1.1')", pacContext);
 if (publicRoute.includes("DIRECT")) throw new Error(`Fail-closed PAC leaked a direct fallback: ${publicRoute}`);
 if (localRoute !== "DIRECT") throw new Error(`Local bypass PAC invariant failed: ${localRoute}`);
+for (const [host, local] of hostCases) {
+  pacContext.hostUnderTest = host;
+  const route = vm.runInContext("FindProxyForURL('https://' + hostUnderTest + '/', hostUnderTest)", pacContext);
+  if ((route === "DIRECT") !== local) throw new Error(`PAC local bypass mismatch for ${host}: ${route}`);
+}
 const failOpenPac = evaluate("buildRelayPacScript(__endpoint, {failClosed:false,bypassLocal:false})", { __endpoint: endpoint });
 const openContext = vm.createContext({});
 vm.runInContext(failOpenPac, openContext);

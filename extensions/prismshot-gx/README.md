@@ -1,6 +1,10 @@
-# PrismShot GX
+# PrismShot GX 1.0.1
 
 A dark, modern Manifest V3 extension for capturing high-quality still frames from HTML video in Opera GX and Chromium browsers.
+
+For optional diagnostics, open this extension's service-worker console from `opera://extensions` and run `chrome.storage.sync.get('settings').then(({settings}) => chrome.storage.sync.set({settings: {...settings, debugLog: true}}))`, then capture a frame. Repeat with `false` to disable. Version, effective capture mode, capture results and failures appear in that console. Debug logging is off by default.
+
+Regression checks: `node extensions/prismshot-gx/tests/regression.mjs` and `node extensions/prismshot-gx/tests/validate.mjs` from the pack folder.
 
 ## Core capture engine
 

@@ -10,5 +10,6 @@
   "fsync_interval_mb": 64,
   "impersonate_generic": true,
   "keep_failed_cache": true,
-  "captured_fragment_limit": 10000
+  "captured_fragment_limit": 10000,
+  "debug_log": false
 }

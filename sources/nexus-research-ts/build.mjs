@@ -1,9 +1,11 @@
 import { build } from 'esbuild';
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = process.cwd();
 const dist = path.join(root, 'dist');
+if (!dist.startsWith(root + path.sep)) throw new Error('Build output must remain inside the source project.');
+await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
 const common = {

@@ -20,12 +20,15 @@ const DEFAULT_SETTINGS = Object.freeze({
   saveAs: false,
   historyLimit: 18,
   burstCount: 1,
-  burstInterval: 650
+  burstInterval: 650,
+  debugLog: false
 });
 
 const OFFSCREEN_URL = 'offscreen/offscreen.html';
 let creatingOffscreen = null;
 let captureQueue = Promise.resolve();
+let debugEnabled = false;
+let debugStarted = false;
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   const { settings } = await chrome.storage.sync.get('settings');
@@ -201,7 +204,12 @@ async function captureOne({ tabId, frameId, videoId, settings, destination, burs
       restoreToken = prepare?.restoreToken || null;
 
       await sleep(clampInt(settings.visibleCaptureDelay, 0, 1000));
+      const [activeTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      if (activeTab?.id !== tabId) throw new Error('The active tab changed before capture. Return to the video tab and try again.');
       sourceDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+      const [capturedTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+      if (capturedTab?.id !== tabId) throw new Error('The active tab changed during capture. Return to the video tab and try again.');
+      selected.currentTime = prepare?.currentTime ?? selected.currentTime;
       crop = clampCrop(selected.topRect, discovery.topViewport);
       if (!crop || crop.width < 8 || crop.height < 8) {
         throw new Error('The selected video is outside the visible tab area.');
@@ -287,6 +295,7 @@ async function captureOne({ tabId, frameId, videoId, settings, destination, burs
     downloadId
   };
   await addHistory(record, settings.historyLimit);
+  debugLog('capture', { engine, destination, width: processed.width, height: processed.height });
 
   if (settings.showToasts) {
     const action = destination === 'clipboard' ? 'Copied' : destination === 'both' ? 'Saved + copied' : 'Saved';
@@ -446,7 +455,17 @@ async function sendToFrame(tabId, frameId, message, timeoutMs = 2000) {
 
 async function getSettings() {
   const { settings } = await chrome.storage.sync.get('settings');
-  return { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  const resolved = { ...DEFAULT_SETTINGS, ...(settings || {}) };
+  debugEnabled = resolved.debugLog === true;
+  if (!debugStarted && debugEnabled) {
+    debugStarted = true;
+    debugLog('startup', { captureMode: resolved.captureMode, destination: resolved.destination });
+  }
+  return resolved;
+}
+
+function debugLog(event, details) {
+  if (debugEnabled) console.debug(`[PrismShot GX ${chrome.runtime.getManifest().version}] ${event}`, details);
 }
 
 async function getActiveTab() {
@@ -524,7 +543,7 @@ function renderTemplate(template, values) {
 
 function sanitizeSegment(value, maxLength = 100) {
   const clean = String(value)
-    .replace(/[<>:"\\|?*\u0000-\u001F]/g, ' ')
+    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, ' ')
     .replace(/[. ]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -585,14 +604,16 @@ function sleep(ms) {
 }
 
 function promiseWithTimeout(promise, timeoutMs, message) {
+  let timer;
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), timeoutMs))
-  ]);
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeoutMs); })
+  ]).finally(() => clearTimeout(timer));
 }
 
 function humanizeError(error) {
   const message = error?.message || String(error || 'Unknown error');
+  debugLog('failure', { cause: message });
   if (message.includes('Receiving end does not exist')) {
     return 'PrismShot cannot run on this browser page. Open a normal website tab containing a video.';
   }

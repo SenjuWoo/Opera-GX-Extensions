@@ -57,7 +57,13 @@
     try {
       const payload = await request(url);
       const links = Array.isArray(payload) ? payload : (payload && Array.isArray(payload.links) ? payload.links : []);
-      const first = links.find((x) => x && (x.URI || x.uri || x.url));
+      const safeLinks = links.filter((link) => {
+        try {
+          const url = new URL(link?.URI || link?.uri || link?.url);
+          return url.protocol === 'https:' && !url.username && !url.password;
+        } catch { return false; }
+      });
+      const first = safeLinks[0];
       if (!first) {
         return {
           mode: 'unavailable',
@@ -69,7 +75,7 @@
         mode: 'direct',
         url: first.URI || first.uri || first.url,
         name: first.name || first.short_name || 'Nexus CDN',
-        links,
+        links: safeLinks,
       };
     } catch (err) {
       const status = Number(err && err.status) || 0;

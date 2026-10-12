@@ -30,6 +30,9 @@
 
   const nativeOpen = window.open;
   const wrappedOpen = function open(url, target, features) {
+    if (/^_(self|parent|top)$/i.test(String(target || ''))) {
+      return nativeOpen.call(window, url, target, features);
+    }
     const verdict = policy.evaluateOpen(state, config, {
       now: Date.now(),
       pageUrl: location.href,

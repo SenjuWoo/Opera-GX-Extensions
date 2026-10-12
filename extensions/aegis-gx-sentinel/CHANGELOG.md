@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.6
+
+- Trusted sites now allow repeated downloads over HTTP and HTTPS on every port. Localhost, loopback IPs, IPv6 and LAN hostnames can be trusted from the popup or settings; feed parsing remains separate.
+- Popup exclusions use the same trusted-host parser and avoid invalid wildcard IP patterns. Failed permission updates now report their cause instead of claiming success.
+- Content scripts cannot invoke settings changes, proxy credential writes, or panic cleanup; YouTube reports require a YouTube sender.
+- Panic cleanup's All time option now passes `since: 0`; prototype keys are rejected during configuration merges.
+- Relay local bypass now checks actual IP addresses, so public `fc`/`fd` names and IPv4-looking DNS names stay on the relay. Private IPv6 and intranet/local names retain their intended bypass.
+- Relay endpoints require valid DNS/IPv6 hosts; malformed names and PAC route separators are rejected before proxy configuration.
+- Feed downloads preserve settings and counters changed while the network request was pending, including newly trusted sites and disabled protection/feed choices.
+- Trusting a `www` hostname now disables cosmetic filtering and password-form warnings consistently on that host.
+- Added optional debug logging and regression checks against the actual worker.
+
 ## 1.3.5
 
 Fixed

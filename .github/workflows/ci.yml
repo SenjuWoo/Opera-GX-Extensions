@@ -57,7 +57,9 @@ jobs:
               print("package-lock.json already uses a public registry")
           PY
           npm ci --registry https://registry.npmjs.org/
+          npm test
           npm run build --if-present
+          npm run verify:runtime
           if [ -x node_modules/.bin/tsc ]; then
             node_modules/.bin/tsc --noEmit
           else
@@ -79,7 +81,8 @@ jobs:
       - name: Install and test
         run: |
           npm ci --registry https://registry.npmjs.org/
-          npm test
+          npm run verify
+          npm run verify:runtime
 
   tests:
     name: Extension test suites
@@ -102,10 +105,14 @@ jobs:
           done < <(find extensions -type f \
               \( -path '*/tests/*' -o -name '*test*.mjs' -o -name '*selfcheck*.mjs' \
                  -o -name 'validate.mjs' -o -name 'self_test.mjs' \) \
-              \( -name '*.mjs' -o -name '*.cjs' \) \
+              \( -name '*.mjs' -o -name '*.cjs' -o -name '*.js' \) \
               -not -path '*/node_modules/*' | sort)
           echo "ran $found suites"
           test "$found" -gt 0
+          node tools/validate-extension.test.mjs
+          node tools/runtime-parity.test.mjs
+      - name: Companion regression tests
+        run: python3 -m unittest discover -s sources/nebulagrab-companion/tests -v
 
   version-sync:
     name: Manifest versions match the README table
@@ -117,3 +124,14 @@ jobs:
         with:
           node-version: '22'
       - run: node tools/check-versions.mjs
+
+  signing-identity:
+    name: Signing identity preservation
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - run: ./tools/build-selfcheck.ps1

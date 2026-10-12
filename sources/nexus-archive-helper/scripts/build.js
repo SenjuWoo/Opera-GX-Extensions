@@ -36,7 +36,7 @@ const userscript = [
   '',
   stamp(read('src/userscript/app.js')),
   '',
-].join('\n');
+].join('\n').trimEnd() + '\n';
 write('dist/nexus-archive-helper.user.js', userscript);
 copyStampedTree(path.join(root, 'src/extension'), extDist);
 fs.copyFileSync(path.join(root, 'src/core.js'), path.join(extDist, 'core.js'));

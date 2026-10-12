@@ -53,26 +53,26 @@
   panel.innerHTML = `
     <h2>Nexus Archive Helper</h2>
     <div class="muted">Official Nexus API/archive resolver. API key stays in Tampermonkey storage.</div>
-    <div class="nah-row"><input id="nah-key" type="password" autocomplete="off" placeholder="Nexus Personal API key"><button id="nah-save">Save + Test</button></div>
+    <div class="nah-row"><button id="nah-save">Set API key + Test</button></div>
     <div class="muted"><a href="https://www.nexusmods.com/users/myaccount?tab=api%20access" target="_blank" rel="noreferrer" style="color:#e7a85d">Open Nexus API Access</a></div>
     <div class="nah-row"><input id="nah-ref" placeholder="Nexus URL, nxm:// URL, or game:modId:fileId"><button id="nah-find" class="primary">Find files</button></div>
     <div id="nah-status" class="status">Ready.</div>
     <div id="nah-results"></div>`;
   document.body.appendChild(panel);
 
-  const keyInput = panel.querySelector('#nah-key');
   const refInput = panel.querySelector('#nah-ref');
   const status = panel.querySelector('#nah-status');
   const results = panel.querySelector('#nah-results');
-  keyInput.value = GM_getValue(API_KEY_NAME, '') || '';
   refInput.value = location.href;
 
   launch.addEventListener('click', () => { panel.hidden = !panel.hidden; if (!panel.hidden) refInput.focus(); });
 
   function setStatus(text) { status.textContent = text; }
 
-  panel.querySelector('#nah-save').addEventListener('click', async () => {
-    const key = keyInput.value.trim();
+  async function configureApiKey() {
+    const entered = window.prompt('Nexus Archive Helper: enter your Personal API key. Leave empty to clear it.', '');
+    if (entered === null) return;
+    const key = entered.trim();
     GM_setValue(API_KEY_NAME, key);
     if (!key) { setStatus('API key cleared.'); return; }
     setStatus('Testing API key…');
@@ -80,7 +80,11 @@
       const user = await R.validateUser(apiRequest);
       setStatus(`API key OK: ${user.name || `user ${user.id}`} • ${user.premium ? 'Premium' : 'Free account'}`);
     } catch (err) { setStatus(C.errorMessage(err)); }
+  }
+  panel.querySelector('#nah-save').addEventListener('click', (event) => {
+    if (event.isTrusted) void configureApiKey();
   });
+  GM_registerMenuCommand('Set Nexus Archive Helper API key', configureApiKey);
 
   async function download(ref, fileId, preferNxm) {
     setStatus(`Resolving download for file ${fileId}…`);

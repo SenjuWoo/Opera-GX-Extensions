@@ -82,4 +82,9 @@ Every hibernation is logged locally (last 25) and can be restored with one click
 
 ```bash
 node tests/smoke.cjs
+node tests/content.cjs
 ```
+
+## Diagnostics
+
+Debug logging is off by default. In this extension's service-worker console at `opera://extensions`, run `chrome.storage.local.set({ debugLog: true })`, then reload the extension. Logs include its version, resolved settings, hibernation/recovery actions, and failed browser operations. Set `debugLog: false` to turn them off. Logs stay in the extension's DevTools console; no log files or network upload are created.

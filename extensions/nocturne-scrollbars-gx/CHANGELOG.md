@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-10-12
+
+- Restore detailed scrollbar styling in Chromium by keeping the competing standard properties at `auto`; retain a standard-only fallback.
+- Remove styles from nested and detached shadow roots when disabled, and observe additions inside existing open shadow roots.
+- Avoid repeated fallback-style mutations and unnecessary sync reads once local settings exist.
+- Add dependency-free regressions and opt-in local `debugLog` console diagnostics.
+
 ## 1.1.0
 
 Changed

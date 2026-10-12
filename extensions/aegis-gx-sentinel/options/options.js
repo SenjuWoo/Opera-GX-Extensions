@@ -128,6 +128,7 @@ function renderRelayResults(results) {
 }
 
 function render() {
+  $("debugLog").checked = Boolean(config.debugLog);
   $("domains").textContent = fmt(config.stats.domainsLoaded);
   $("adDomains").textContent = fmt(config.stats.adDomainsLoaded);
   $("rules").textContent = fmt(config.stats.dynamicRules);
@@ -196,6 +197,7 @@ function gather() {
   const parsedRelays = parseRelayEndpoints($("relayEndpoints").value);
   if (parsedRelays.errors.length) throw new Error(parsedRelays.errors.join(" · "));
   const patch = {
+    debugLog: $("debugLog").checked,
     profile: document.querySelector("input[name='profile']:checked").value,
     privacy: {},
     security: {},

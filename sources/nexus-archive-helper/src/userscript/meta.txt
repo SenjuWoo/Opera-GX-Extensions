@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         Nexus Archive Helper
-// @namespace    https://github.com/ShugokiFable/Opera-GX-Extensions
+// @namespace    https://github.com/SenjuWoo/Opera-GX-Extensions
 // @version      __VERSION__
 // @description  Find Nexus archived/old files by exact IDs and official API routes, then hand downloads back to Nexus.
-// @author       ShugokiFable
+// @author       SenjuWoo
 // @match        https://www.nexusmods.com/*/mods/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_registerMenuCommand
+// @sandbox      DOM
 // @connect      api.nexusmods.com
 // @run-at       document-idle
 // ==/UserScript==

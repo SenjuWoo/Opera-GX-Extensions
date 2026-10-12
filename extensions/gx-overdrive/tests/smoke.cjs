@@ -47,6 +47,9 @@ function store(backing) {
 
 const sessionStore = {};
 let freeRatio = 40 / 64;
+const activeDownloads = [];
+const downloadActions = [];
+let awake = false;
 
 const chrome = {
   storage: {
@@ -88,16 +91,16 @@ const chrome = {
   },
   windows: { async update() {} },
   downloads: {
-    async search() { return []; },
-    async pause() {},
-    async resume() {},
+    async search(query) { return query.state === 'in_progress' ? activeDownloads : []; },
+    async pause(id) { downloadActions.push(['pause', id]); },
+    async resume(id) { downloadActions.push(['resume', id]); },
     async show() {},
     onCreated: events.downloadCreated,
     onChanged: events.downloadChanged
   },
   power: {
-    requestKeepAwake() {},
-    releaseKeepAwake() {}
+    requestKeepAwake() { awake = true; },
+    releaseKeepAwake() { awake = false; }
   },
   browsingData: {
     async removeCache() {},
@@ -119,6 +122,7 @@ const chrome = {
   },
   commands: { onCommand: events.command },
   runtime: {
+    getManifest() { return { version: 'test' }; },
     onInstalled: events.installed,
     onStartup: events.startup,
     onMessage: events.message,
@@ -209,6 +213,15 @@ function send(message) {
   assert.ok(whitelistHasHost(site.settings.whitelist, 'chatgpt.com'), 'active host added to the never-hibernate list');
   const unset = await send({ type: 'GX_SET_SITE_PROTECTION', protected: false });
   assert.ok(!whitelistHasHost(unset.settings.whitelist, 'chatgpt.com'), 'site protection can be removed again');
+
+  activeDownloads.push({ id: 10, paused: false, canResume: true, bytesReceived: 100 });
+  await vm.runInContext('runDownloadRecovery()', context);
+  assert.equal(awake, true, 'a running download keeps the PC awake');
+  activeDownloads[0].paused = true;
+  localStore.downloadWatch = { 10: { bytesReceived: 100, lastProgressAt: Date.now() - 900_000 } };
+  await vm.runInContext('runDownloadRecovery()', context);
+  assert.equal(awake, false, 'paused-only downloads release keep-awake');
+  assert.deepEqual(downloadActions, [], 'recovery respects a user-paused download');
 
   console.log('GX Overdrive background smoke test: PASS');
 })().catch((error) => {

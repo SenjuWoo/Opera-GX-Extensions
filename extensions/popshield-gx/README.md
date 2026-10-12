@@ -63,7 +63,12 @@ a general ad blocker either — that is a separate job.
 
 ```bash
 node tests/policy.test.cjs
+node --test tests/runtime.test.cjs
 ```
 
 The decision logic lives in `src/policy.js` with no DOM or `chrome.*`
 dependencies, so the test exercises the real code rather than a copy.
+
+## Debug log
+
+Use the extension service worker's DevTools console for errors. Enable version, resolved settings, and state logs with `chrome.storage.local.get('settings').then(({ settings = {} }) => chrome.storage.local.set({ settings: { ...settings, debug: true } }))`, then reload the extension. Set `debug: false` to return to quiet mode.

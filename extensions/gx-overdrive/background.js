@@ -55,6 +55,10 @@ const HIBERNATION_LOG_LIMIT = 25;
 
 let awakeRequested = false;
 let downloadRecoveryPromise = null;
+let debugLog = false;
+function debug(...args) {
+  if (debugLog) console.debug(`GX Overdrive ${chrome.runtime.getManifest().version}`, ...args);
+}
 // Serialises read-modify-write on the shared stats object; the governor and the
 // download watcher both tick on the same minute alarm and used to lose counts.
 let statsQueue = Promise.resolve();
@@ -103,8 +107,11 @@ async function syncBrowserDiscardability(settings) {
 }
 
 async function getSettings() {
-  const stored = await chrome.storage.local.get('settings');
-  return { ...DEFAULTS, ...(stored.settings || {}) };
+  const stored = await chrome.storage.local.get(['settings', 'debugLog']);
+  debugLog = stored.debugLog === true;
+  const settings = { ...DEFAULTS, ...(stored.settings || {}) };
+  debug('resolved settings', settings);
+  return settings;
 }
 
 async function setSettings(patch) {
@@ -245,11 +252,13 @@ async function discardCandidates(candidates, settings, limit) {
       await chrome.tabs.discard(tab.id);
       tab.discarded = true;
       hibernated.push(tab);
-    } catch {
+    } catch (error) {
+      debug('tab discard failed', tab.id, error.message);
       // The browser may reject protected/internal tabs or a tab that changed state.
     }
   }
   if (hibernated.length) {
+    debug('tabs hibernated', hibernated.map((tab) => tab.id));
     await updateStats({ tabsDiscarded: (v) => (Number(v) || 0) + hibernated.length });
     await recordHibernations(hibernated);
   }
@@ -371,13 +380,14 @@ async function runDownloadRecoveryImpl() {
     settings.autoResumeInterrupted ? chrome.downloads.search({ state: 'interrupted' }) : Promise.resolve([])
   ]);
 
-  await setKeepAwake(settings.keepAwakeDuringDownloads && active.length > 0);
+  await setKeepAwake(settings.keepAwakeDuringDownloads && active.some((item) => !item.paused));
 
   const watch = await getDownloadWatch();
   const nextWatch = {};
   let recovered = 0;
 
   for (const item of active) {
+    if (item.paused) continue;
     const previous = watch[item.id] || {
       bytesReceived: item.bytesReceived || 0,
       lastProgressAt: now,
@@ -400,7 +410,8 @@ async function runDownloadRecoveryImpl() {
         record.lastRecoveryAt = now;
         record.lastProgressAt = now;
         recovered += 1;
-      } catch {
+      } catch (error) {
+        debug('download cycle failed', item.id, error.message);
         // Some servers or browser-managed downloads cannot be cycled.
       }
     }
@@ -424,12 +435,14 @@ async function runDownloadRecoveryImpl() {
     try {
       await chrome.downloads.resume(item.id);
       recovered += 1;
-    } catch {
+    } catch (error) {
+      debug('download resume failed', item.id, error.message);
       // Resume is best-effort and depends on server range support.
     }
   }
 
   await setDownloadWatch(nextWatch);
+  debug('download recovery', { active: active.length, recovered });
   if (recovered) {
     await updateStats({
       downloadsRecovered: (v) => (Number(v) || 0) + recovered,
