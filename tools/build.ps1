@@ -4,7 +4,7 @@
   Opera GX's own packer, drops the packages in Release\, and reports what your
   browser is currently running against what was just built.
 
-  There is no staging copy anywhere on the system. Every extension has its public
+  Temporary payload staging is removed when the build exits. Every extension has its public
   key pinned in its manifest, so its ID comes from the key rather than from a
   folder path - which is what makes a plain source folder safe to load unpacked
   and a .crx safe to move between machines.
@@ -153,6 +153,10 @@ foreach ($dir in (Get-ChildItem $ExtensionDir -Directory)) {
   }
   node (Join-Path $ToolsDir 'validate-extension.mjs') $stage
   if ($LASTEXITCODE -ne 0) { throw "Payload validation failed for $slug" }
+  # Package bytes must not change merely because a checkout was copied or touched.
+  $packageTime = [datetime]::new(2000, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+  Get-ChildItem -LiteralPath $stage -Recurse -Force | ForEach-Object { $_.LastWriteTimeUtc = $packageTime }
+  (Get-Item -LiteralPath $stage).LastWriteTimeUtc = $packageTime
   $crx = Invoke-Pack $stage $key
   $crxTarget = Join-Path $ReleaseDir ("{0}-v{1}.crx" -f $slug, $manifest.version)
 

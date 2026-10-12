@@ -73,6 +73,8 @@ Build.cmd
 
 One command. It validates every manifest, signs a `.crx` and `.zip` per extension into `Release\`, writes `SHA256SUMS.txt`, and reports what your browser is running against what was just built.
 
+To package the optional companion distribution, run `pwsh -File tools/package-companion.ps1` before `Build.cmd`. Both packers use stable payload timestamps; repeated builds with the same source and packer produce the same bytes.
+
 It uses Opera's own packer — no OpenSSL, no third-party signing tools. Node.js is used only to derive a public key from a signing key.
 
 To ship an update: raise `version` in that extension's `manifest.json`, run `Build.cmd`, drag the new `.crx` in. Same key plus a higher version is an in-place update, so settings, toolbar position and permissions survive.

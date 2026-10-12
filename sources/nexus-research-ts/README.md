@@ -42,6 +42,8 @@ Build outputs:
 - `dist/` ready for **Load unpacked**
 - `release/NEXUS-Research-OperaGX-Chrome-MV3.zip` share-ready extension archive
 
+Inside this monorepo, run `npm run sync:opera` to test, typecheck, build and safely update `extensions/nexus-research`. CI runs `npm run verify:runtime` after building to reject stale committed bundles. Source sync preserves the pinned signing key and owner documentation.
+
 ## Permission model
 
 NEXUS does not inject a permanent content script. It extracts a page only after an explicit extension interaction. The base permissions cover the active page, side panel, local storage, downloads, and context menus. `<all_urls>` is optional and requested only for multi-tab extraction.

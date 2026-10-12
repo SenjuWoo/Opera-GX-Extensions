@@ -135,3 +135,4 @@ jobs:
         with:
           node-version: '22'
       - run: ./tools/build-selfcheck.ps1
+      - run: ./tools/package-companion.ps1
