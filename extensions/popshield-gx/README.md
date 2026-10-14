@@ -3,6 +3,8 @@
 A local-only popup, popunder, click-hijack and interstitial blocker for Opera GX
 and Chromium.
 
+Version 1.0.4.
+
 Built as a replacement for a commercial popup blocker that shipped a telemetry
 host, a second API on an unrelated domain, and a remote feature-flag service —
 while holding script-injection rights on every site. PopShield sends nothing,
@@ -24,6 +26,9 @@ window you asked for is how it behaves:
 
 Only `isTrusted` events count as a gesture, which is precisely what a script
 cannot fake by dispatching its own click.
+Mouse and touch use their pointer event once, so the same click's compatibility
+mouse events cannot grant another popup. Relative URLs use the current page as
+their base. Settings saves are serialized to preserve rapid changes.
 
 The `window.open` wrapper installs at `document_start` in the page's own world,
 before site scripts can cache the original. Blocked calls return a harmless stub

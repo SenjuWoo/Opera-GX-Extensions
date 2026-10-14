@@ -42,6 +42,8 @@
     settings: null,
     observer: null,
     mediaObserver: null,
+    imageAttributes: new WeakMap(),
+    videoPreloads: new WeakMap(),
     optimizationQueued: false,
     optimizationRoot: null,
     chat: {
@@ -66,19 +68,36 @@
     return [...new Set(items.filter(Boolean))];
   }
 
-  const EDITOR_SELECTOR = 'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="hidden"]), [contenteditable="true"], [contenteditable=""]';
+  const EDITOR_SELECTOR = 'textarea, select, input:not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="hidden"]), [contenteditable]:not([contenteditable="false"])';
 
   // A sticky "user typed once" flag protected a tab forever, so hibernation
   // silently stopped working on any page with a search box. Check live content
   // instead: text that is still on screen is unsaved, text that is gone is not.
   function hasUnsavedInput() {
-    for (const node of document.querySelectorAll(EDITOR_SELECTOR)) {
-      if (node.isContentEditable) {
-        if (node.textContent.trim()) return true;
-        continue;
+    const roots = [document];
+    for (const root of roots) {
+      for (const node of root.querySelectorAll(EDITOR_SELECTOR)) {
+        if (node.isContentEditable) {
+          if (node.textContent.trim()) return true;
+        } else if (node.type === 'checkbox' || node.type === 'radio') {
+          if (node.checked !== node.defaultChecked) return true;
+        } else if (node.tagName === 'SELECT') {
+          const options = [...node.options];
+          if (node.multiple) {
+            if (options.some(option => option.selected !== option.defaultSelected)) return true;
+          } else {
+            let selected = -1;
+            options.forEach((option, index) => { if (option.defaultSelected) selected = index; });
+            if (selected < 0 && node.size <= 1) {
+              selected = options.findIndex(option => !option.disabled && !(option.parentElement?.tagName === 'OPTGROUP' && option.parentElement.disabled));
+            }
+            if (node.selectedIndex !== selected) return true;
+          }
+        } else if ((node.type === 'password' && node.value) || node.value !== node.defaultValue) return true;
       }
-      if (!node.value) continue;
-      if (node.type === 'password' || node.value !== node.defaultValue) return true;
+      for (const node of root.querySelectorAll('*')) {
+        if (node.shadowRoot) roots.push(node.shadowRoot);
+      }
     }
     return false;
   }
@@ -96,11 +115,28 @@
 
   function optimizeImages(root = document) {
     const settings = state.settings;
-    if (!settings?.enabled || !settings.universalTurbo || !settings.lazyImages) return;
+    if (!settings?.enabled || !settings.universalTurbo || !settings.lazyImages) {
+      root.querySelectorAll?.('img[data-gxo-image]').forEach((img) => {
+        for (const attribute of state.imageAttributes.get(img) || []) {
+          if (img.getAttribute(attribute) === (attribute === 'loading' ? 'lazy' : 'async')) img.removeAttribute(attribute);
+        }
+        state.imageAttributes.delete(img);
+        delete img.dataset.gxoImage;
+      });
+      return;
+    }
     root.querySelectorAll?.('img:not([data-gxo-image])').forEach((img) => {
       img.dataset.gxoImage = '1';
-      if (!img.hasAttribute('loading') && img.getAttribute('fetchpriority') !== 'high') img.loading = 'lazy';
-      if (!img.hasAttribute('decoding')) img.decoding = 'async';
+      const attributes = [];
+      if (!img.hasAttribute('loading') && img.getAttribute('fetchpriority') !== 'high') {
+        img.setAttribute('loading', 'lazy');
+        attributes.push('loading');
+      }
+      if (!img.hasAttribute('decoding')) {
+        img.setAttribute('decoding', 'async');
+        attributes.push('decoding');
+      }
+      state.imageAttributes.set(img, attributes);
     });
   }
 
@@ -111,6 +147,12 @@
       state.mediaObserver = null;
       document.querySelectorAll('video[data-gxo-video]').forEach((video) => {
         delete video.dataset.gxoVideo;
+        if (state.videoPreloads.has(video) && video.getAttribute('preload') === 'metadata') {
+          const preload = state.videoPreloads.get(video);
+          if (preload === null) video.removeAttribute('preload');
+          else video.setAttribute('preload', preload);
+        }
+        state.videoPreloads.delete(video);
         if (video.dataset.gxoPausedOffscreen === '1') {
           delete video.dataset.gxoPausedOffscreen;
           if (video.paused) video.play().catch(() => {});
@@ -137,7 +179,10 @@
     }
     root.querySelectorAll?.('video:not([data-gxo-video])').forEach((video) => {
       video.dataset.gxoVideo = '1';
-      video.preload = video.preload === 'auto' ? 'metadata' : video.preload;
+      if (video.preload === 'auto') {
+        state.videoPreloads.set(video, video.getAttribute('preload'));
+        video.preload = 'metadata';
+      }
       state.mediaObserver.observe(video);
     });
   }

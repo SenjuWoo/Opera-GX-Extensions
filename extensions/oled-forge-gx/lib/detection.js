@@ -1,3 +1,4 @@
+// Separate decorative paint from page surfaces before applying OLED conversions.
 (function initOLEDDetection(globalScope) {
   'use strict';
 
@@ -5,11 +6,31 @@
   if (!C) return;
 
   const INTERACTIVE_TAGS = new Set(['BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION']);
+  const CSS_COLORS = /(?:rgba?|oklch|oklab|lab|lch|color)\([^()]*\)/gi;
 
   function extractCssColors(value) {
     if (!value) return [];
-    const matches = String(value).match(/rgba?\([^)]*\)/gi) || [];
+    const matches = String(value).match(CSS_COLORS) || [];
     return matches.map((match) => C.parseColor(match)).filter(Boolean);
+  }
+
+  // Shift neutral glyph gradients together so readability does not flatten their stops.
+  function readableTextGradient(value, background, target = 4.55) {
+    const text = String(value || '');
+    if (!background || !/(?:linear|radial|conic)-gradient\(/i.test(text) || /url\(/i.test(text)) return null;
+    const colors = extractCssColors(text);
+    if (colors.length < 2 || colors.some(color => !C.isNearNeutral(color) || color.a < 0.98)) return null;
+    if (colors.every(color => C.contrastRatio(color, background) >= target)) return null;
+    const light = C.contrastRatio({ r: 255, g: 255, b: 255 }, background)
+      >= C.contrastRatio({ r: 0, g: 0, b: 0 }, background);
+    const shifts = colors.map(color => C.rgbToHsl(C.ensureContrast(color, background, target)).l - C.rgbToHsl(color).l);
+    const shift = light ? Math.max(0, ...shifts) : Math.min(0, ...shifts);
+    return text.replace(CSS_COLORS, value => {
+      const color = C.parseColor(value);
+      const hsl = C.rgbToHsl(color);
+      const adjusted = C.hslToRgb({ ...hsl, l: C.clamp(hsl.l + shift) });
+      return C.toCss(C.ensureContrast(adjusted, background, target));
+    });
   }
 
   function averageColors(colors) {
@@ -87,6 +108,7 @@
 
   const api = {
     extractCssColors,
+    readableTextGradient,
     averageColors,
     analyzeGradient,
     shouldMergeSurface,

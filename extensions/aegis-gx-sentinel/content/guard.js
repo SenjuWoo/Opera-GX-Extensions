@@ -3,6 +3,7 @@
   globalThis.__AEGIS_GX_GUARD__ = true;
 
   let config = null;
+  let configSignature = null;
   let blocked = 0;
   let reportTimer = null;
   const cosmeticSelectors = [
@@ -53,8 +54,14 @@
     reportTimer = setTimeout(() => chrome.runtime.sendMessage({ type: "CONTENT_STATS", blocked }).catch(() => {}), 250);
   }
 
+  function matchingElements(root, selector) {
+    const elements = Array.from(root.querySelectorAll?.(selector) || []);
+    if (root.matches?.(selector)) elements.unshift(root);
+    return elements;
+  }
+
   function protectLinks(root = document) {
-    for (const anchor of root.querySelectorAll?.("a[ping], a[target='_blank']") || []) {
+    for (const anchor of matchingElements(root, "a[ping], a[target='_blank']")) {
       if (anchor.hasAttribute("ping")) anchor.removeAttribute("ping");
       if (anchor.target === "_blank") {
         const rel = new Set((anchor.rel || "").split(/\s+/).filter(Boolean));
@@ -68,7 +75,7 @@
 
   function removePageSpeculation(root = document) {
     if (!config?.enabled || !config?.privacy?.disablePageSpeculation) return;
-    const speculative = root.querySelectorAll?.("link[rel~='dns-prefetch'], link[rel~='preconnect'], link[rel~='prefetch'], link[rel~='prerender']") || [];
+    const speculative = matchingElements(root, "link[rel~='dns-prefetch'], link[rel~='preconnect'], link[rel~='prefetch'], link[rel~='prerender']");
     for (const link of speculative) {
       link.remove();
       blocked += 1;
@@ -77,17 +84,24 @@
   }
 
   function injectCosmeticStyle() {
-    if (!adCosmeticsEnabled() || document.getElementById("aegis-cosmetic-style")) return;
-    const style = document.createElement("style");
-    style.id = "aegis-cosmetic-style";
+    let style = document.getElementById("aegis-cosmetic-style");
+    if (!adCosmeticsEnabled()) {
+      style?.remove();
+      return;
+    }
     const selectors = config.adblock.sponsoredCleanup ? [...cosmeticSelectors, ...sponsoredSelectors] : cosmeticSelectors;
-    style.textContent = `${selectors.join(",")} { display: none !important; visibility: hidden !important; }`;
-    (document.documentElement || document).appendChild(style);
+    const css = `${selectors.join(",")} { display: none !important; visibility: hidden !important; }`;
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "aegis-cosmetic-style";
+      style.textContent = css;
+      (document.documentElement || document).appendChild(style);
+    } else if (style.textContent !== css) style.textContent = css;
   }
 
   function removeAnnoyances(root = document) {
     if (!config?.adblock?.enabled || !config.adblock.antiAdblockCleanup || adblockAllowedHere()) return;
-    const candidates = root.querySelectorAll?.("dialog, [role='dialog'], [class*='modal'], [class*='overlay'], [id*='modal'], [id*='overlay']") || [];
+    const candidates = matchingElements(root, "dialog, [role='dialog'], [class*='modal'], [class*='overlay'], [id*='modal'], [id*='overlay']");
     for (const element of candidates) {
       if (!(element instanceof HTMLElement)) continue;
       const text = (element.innerText || "").slice(0, 1000);
@@ -104,12 +118,16 @@
     }
   }
 
-  function inspectForms(root = document) {
-    if (!config?.enabled || location.protocol === "https:") return;
+  function httpWarningsEnabled() {
+    if (!config?.enabled || location.protocol === "https:") return false;
     const host = normalizedHost();
-    if (host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost")) return; // loopback: traffic never leaves the machine
-    if ((config.allowlist || []).some(d => domainMatches(host, String(d).toLowerCase()))) return; // trusted site: user accepted the risk
-    const password = root.querySelector?.("input[type='password']");
+    if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost")) return false;
+    return !(config.allowlist || []).some(d => domainMatches(host, String(d).toLowerCase()));
+  }
+
+  function inspectForms(root = document) {
+    if (!httpWarningsEnabled()) return;
+    const password = matchingElements(root, "input[type='password']")[0];
     if (!password || document.getElementById("aegis-http-warning")) return;
     const banner = document.createElement("div");
     banner.id = "aegis-http-warning";
@@ -126,27 +144,56 @@
       inspectForms(root);
     }
     if (config?.adblock?.enabled) {
-      injectCosmeticStyle();
       removeAnnoyances(root);
     }
   }
 
-  chrome.runtime.sendMessage({ type: "GET_STATE" }).then(response => {
-    config = response?.config;
-    if (!config?.enabled && !config?.adblock?.enabled) return;
-    process(document);
-    const observer = new MutationObserver(records => {
-      for (const record of records) {
-        for (const node of record.addedNodes) {
-          if (node.nodeType === Node.ELEMENT_NODE) process(node);
-        }
+  const observer = new MutationObserver(records => {
+    injectCosmeticStyle();
+    const roots = new Set();
+    for (const record of records) {
+      for (const node of record.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE && node.isConnected) roots.add(node);
       }
-    });
+    }
+    for (const root of roots) {
+      let parent = root.parentElement;
+      while (parent && !roots.has(parent)) parent = parent.parentElement;
+      if (!parent) process(root);
+    }
+  });
+
+  function applyConfig(next) {
+    const signature = JSON.stringify([
+      next?.enabled, next?.allowlist, next?.privacy?.disablePageSpeculation,
+      next?.adblock?.enabled, next?.adblock?.cosmeticFiltering, next?.adblock?.allowlist,
+      next?.adblock?.sponsoredCleanup, next?.adblock?.antiAdblockCleanup,
+      next?.adblock?.youtube?.enabled, next?.adblock?.youtube?.mode, next?.adblock?.youtube?.hidePromotions
+    ]);
+    config = next;
+    if (signature === configSignature) return;
+    configSignature = signature;
+    observer.disconnect();
+    injectCosmeticStyle();
+    if (!httpWarningsEnabled()) document.getElementById("aegis-http-warning")?.remove();
+    if (!config?.enabled && !config?.adblock?.enabled) {
+      clearTimeout(reportTimer);
+      return;
+    }
+    process(document);
     observer.observe(document, { subtree: true, childList: true });
-    document.addEventListener("DOMContentLoaded", () => process(document), { once: true });
-    window.addEventListener("aegis-popup-blocked", () => {
-      blocked += 1;
-      scheduleReport();
-    });
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.config) applyConfig(changes.config.newValue);
+  });
+  chrome.runtime.sendMessage({ type: "GET_STATE" }).then(response => {
+    if (!config) applyConfig(response?.config);
   }).catch(() => {});
+  document.addEventListener("DOMContentLoaded", () => process(document), { once: true });
+  window.addEventListener("aegis-popup-blocked", () => {
+    if (!config?.enabled) return;
+    blocked += 1;
+    scheduleReport();
+  });
 })();

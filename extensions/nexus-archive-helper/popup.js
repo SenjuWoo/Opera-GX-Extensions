@@ -17,6 +17,7 @@ const quotaEl = $('#quota');
 let currentResult = null;
 let currentReference = '';
 let currentFilter = 'ALL';
+let resolveRequestId = 0;
 
 const HUMAN_STATUSES = ['AVAILABLE', 'ARCHIVED', 'OLD_VERSION', 'DELETED', 'HIDDEN', 'UNKNOWN'];
 
@@ -83,16 +84,19 @@ function renderResult(result,resolvedReference){
 }
 
 async function resolveReference(value){
+  const requestId=++resolveRequestId;
   const input=String(value||reference.value||'').trim();
   if(!input){setStatus('Paste a Nexus reference first.','error');return;}
   reference.value=input;setStatus('Querying Nexus file records…','busy');
   try{
-    const r=await send({type:'RESOLVE',reference:input});updateQuota(r.quota);renderResult(r.result,input);
+    const r=await send({type:'RESOLVE',reference:input});
+    if(requestId!==resolveRequestId)return;
+    updateQuota(r.quota);renderResult(r.result,input);
     const archived=r.result.files.filter(f=>displayStatus(f,r.result)==='ARCHIVED').length;
     const hidden=r.result.files.filter(f=>displayStatus(f,r.result)==='HIDDEN').length;
     const bits=[`${r.result.files.length} unique file record${r.result.files.length===1?'':'s'}`];if(archived)bits.push(`${archived} archived`);if(hidden)bits.push(`${hidden} hidden-page`);if(r.result.exact)bits.push(`exact #${r.result.exact.fileId} resolved`);
     setStatus(bits.join(' · '),'ok');
-  }catch(e){setStatus(e.message,'error');}
+  }catch(e){if(requestId===resolveRequestId)setStatus(e.message,'error');}
 }
 
 async function doDownload(fileId,preferNxm){

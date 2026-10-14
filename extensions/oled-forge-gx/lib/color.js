@@ -1,13 +1,34 @@
+// Use visible, composited colors rather than guessed RGB values when repairing contrast.
 (function initOLEDColor(globalScope) {
   'use strict';
 
   const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, value));
   const round = (value) => Math.round(clamp(value, 0, 255));
+  const cssColors = new Map();
+  let colorContext;
 
   function parseColor(value) {
     if (!value || value === 'transparent') return null;
-    const match = String(value).match(/rgba?\(\s*([\d.]+)(?:\s*,|\s+)\s*([\d.]+)(?:\s*,|\s+)\s*([\d.]+)(?:\s*(?:,|\/)\s*([\d.]+%?))?\s*\)/i);
-    if (!match) return null;
+    const match = String(value).match(/^rgba?\(\s*([\d.]+)(?:\s*,|\s+)\s*([\d.]+)(?:\s*,|\s+)\s*([\d.]+)(?:\s*(?:,|\/)\s*([\d.]+%?))?\s*\)$/i);
+    if (!match) {
+      if (!globalScope.document || !globalScope.CSS?.supports('color', value)
+          || /^(?:currentcolor|inherit|initial|unset|revert|var\()/i.test(value)) return null;
+      if (cssColors.has(value)) return { ...cssColors.get(value) };
+      if (colorContext === undefined) {
+        const canvas = globalScope.document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        colorContext = canvas.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
+      }
+      if (!colorContext) return null;
+      colorContext.clearRect(0, 0, 1, 1);
+      colorContext.fillStyle = value;
+      colorContext.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = colorContext.getImageData(0, 0, 1, 1).data;
+      const parsed = { r, g, b, a: a / 255 };
+      if (cssColors.size >= 256) cssColors.delete(cssColors.keys().next().value);
+      cssColors.set(value, parsed);
+      return { ...parsed };
+    }
     const alphaRaw = match[4];
     const alpha = alphaRaw == null
       ? 1
@@ -116,11 +137,14 @@
     if (!foreground) return background;
     if (!background) return foreground;
     const alpha = foreground.a == null ? 1 : clamp(foreground.a);
+    const backdropAlpha = background.a == null ? 1 : clamp(background.a);
+    const combinedAlpha = alpha + backdropAlpha * (1 - alpha);
+    if (!combinedAlpha) return { r: 0, g: 0, b: 0, a: 0 };
     return {
-      r: foreground.r * alpha + background.r * (1 - alpha),
-      g: foreground.g * alpha + background.g * (1 - alpha),
-      b: foreground.b * alpha + background.b * (1 - alpha),
-      a: 1
+      r: (foreground.r * alpha + background.r * backdropAlpha * (1 - alpha)) / combinedAlpha,
+      g: (foreground.g * alpha + background.g * backdropAlpha * (1 - alpha)) / combinedAlpha,
+      b: (foreground.b * alpha + background.b * backdropAlpha * (1 - alpha)) / combinedAlpha,
+      a: combinedAlpha
     };
   }
 
@@ -185,9 +209,9 @@
     if (!foreground || !background) return foreground;
     if (contrastRatio(foreground, background) >= target) return foreground;
 
-    const bgLum = luminance(background);
     const source = rgbToHsl(foreground);
-    const towardLight = bgLum < 0.42;
+    const towardLight = contrastRatio({ r: 255, g: 255, b: 255 }, background)
+      >= contrastRatio({ r: 0, g: 0, b: 0 }, background);
     let low = 0;
     let high = 1;
     let best = foreground;
@@ -213,8 +237,8 @@
 
     if (contrastRatio(best, background) < target) {
       return towardLight
-        ? { r: 245, g: 245, b: 247, a: foreground.a }
-        : { r: 12, g: 12, b: 14, a: foreground.a };
+        ? { r: 255, g: 255, b: 255, a: foreground.a }
+        : { r: 0, g: 0, b: 0, a: foreground.a };
     }
     return best;
   }

@@ -64,3 +64,9 @@ test('extracts readable API errors', () => {
   assert.equal(C.errorMessage({ status: 403, data: { message: 'Premium only' } }), 'Premium only (HTTP 403)');
   assert.match(C.errorMessage({ status: 404, data: null }), /HTTP 404/);
 });
+
+test('NXM authorization is never reused for a different file from the same mod', () => {
+  const ref = C.parseReference('nxm://skyrim/mods/10/files/20?key=file20-key&expires=1999999999');
+  assert.equal(new URL(C.downloadLinkUrl(ref, 20)).searchParams.get('key'), 'file20-key');
+  assert.equal(new URL(C.downloadLinkUrl(ref, 21)).search, '');
+});

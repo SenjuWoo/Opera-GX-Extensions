@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Nexus Archive Helper
 // @namespace    https://github.com/SenjuWoo/Opera-GX-Extensions
-// @version      1.1.2
+// @version      1.1.3
 // @description  Find Nexus archived/old files by exact IDs and official API routes, then hand downloads back to Nexus.
 // @author       SenjuWoo
 // @match        https://www.nexusmods.com/*/mods/*
@@ -9,6 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_openInTab
 // @sandbox      DOM
 // @connect      api.nexusmods.com
 // @run-at       document-idle
@@ -105,7 +106,7 @@
     const fid = positiveInt(fileId || ref.fileId);
     if (!fid) throw new Error('A file ID is required.');
     const url = new URL(`${baseFor(ref)}/files/${fid}/download_link.json`);
-    if (ref.key && ref.expires) {
+    if (fid === positiveInt(ref.fileId) && ref.key && ref.expires) {
       url.searchParams.set('key', ref.key);
       url.searchParams.set('expires', ref.expires);
     }
@@ -432,29 +433,40 @@
   }
 
   function apiRequest(url) {
+    const target = new URL(url);
+    if (target.origin !== 'https://api.nexusmods.com' || !target.pathname.startsWith('/v1/') || target.username || target.password) {
+      return Promise.reject(new Error('Refusing to send an API key outside the official Nexus API.'));
+    }
     const apiKey = String(GM_getValue(API_KEY_NAME, '') || '').trim();
     if (!apiKey) return Promise.reject({ status: 0, data: { message: 'Add your Nexus Personal API key first.' } });
     return new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
+      let request;
+      const finish = (callback, value) => { clearTimeout(timer); callback(value); };
+      // Tampermonkey redirect controls select fetch transport, where timeout is ignored.
+      const timer = setTimeout(() => {
+        finish(reject, { status: 0, data: { message: 'Nexus API request timed out.' } });
+        request?.abort();
+      }, 30000);
+      try { request = GM_xmlhttpRequest({
         method: 'GET',
         url,
+        redirect: 'error',
         headers: {
           apikey: apiKey,
           Accept: 'application/json',
           'Application-Name': 'Nexus Archive Helper Personal',
-          'Application-Version': '1.1.2',
+          'Application-Version': '1.1.3',
         },
-        timeout: 30000,
         onload(response) {
           let data = null;
           try { data = response.responseText ? JSON.parse(response.responseText) : null; }
           catch { data = response.responseText || null; }
-          if (response.status >= 200 && response.status < 300) resolve(data);
-          else reject({ status: response.status, data, message: response.statusText });
+          if (response.status >= 200 && response.status < 300) finish(resolve, data);
+          else finish(reject, { status: response.status, data, message: response.statusText });
         },
-        onerror() { reject({ status: 0, data: { message: 'Network error contacting Nexus API.' } }); },
-        ontimeout() { reject({ status: 0, data: { message: 'Nexus API request timed out.' } }); },
-      });
+        onerror() { finish(reject, { status: 0, data: { message: 'Network error contacting Nexus API.' } }); },
+        onabort() { finish(reject, { status: 0, data: { message: 'Nexus API request aborted.' } }); },
+      }); } catch (error) { finish(reject, error); }
     });
   }
 
@@ -514,11 +526,11 @@
     const out = await R.resolveDownload(ref, fileId, apiRequest);
     if (out.mode === 'direct' && out.url) {
       setStatus(`Direct Nexus CDN link authorized${out.name ? ` (${out.name})` : ''}.`);
-      window.open(out.url, '_blank', 'noopener,noreferrer');
+      GM_openInTab(out.url, { active: true, setParent: true });
     } else if (out.mode === 'website') {
       const url = preferNxm && out.nxmUrl ? out.nxmUrl : out.url;
       setStatus(`Nexus requires its normal user-bound download flow. Opening exact file page.\n${out.reason || ''}`);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      GM_openInTab(url, { active: true, setParent: true });
     } else {
       setStatus(`Nexus did not expose this file for download.\n${out.reason || ''}`);
     }
@@ -548,13 +560,15 @@
       const id = Number(button.dataset.id);
       const act = button.dataset.act;
       try {
-        if (act === 'page') window.open(C.websiteFileUrl(ref, id, false), '_blank', 'noopener,noreferrer');
+        if (act === 'page') GM_openInTab(C.websiteFileUrl(ref, id, false), { active: true, setParent: true });
         else await download(ref, id, act === 'vortex');
       } catch (err) { setStatus(C.errorMessage(err)); }
     }));
   }
 
+  let resolveRequestId = 0;
   panel.querySelector('#nah-find').addEventListener('click', async () => {
+    const requestId = ++resolveRequestId;
     results.innerHTML = '';
     let ref;
     try { ref = C.parseReference(refInput.value); }
@@ -562,8 +576,9 @@
     setStatus(`Looking up ${ref.game} mod ${ref.modId}${ref.fileId ? `, file ${ref.fileId}` : ''}…`);
     try {
       const result = await R.resolveFiles(ref, apiRequest);
+      if (requestId !== resolveRequestId) return;
       setStatus(`Found ${result.files.length} unique file record(s); ${result.interesting.length} archived/deleted/old.` + (result.exact ? ` Exact file ${result.exact.fileId} resolved.` : ''));
       render(result, ref);
-    } catch (err) { setStatus(C.errorMessage(err)); }
+    } catch (err) { if (requestId === resolveRequestId) setStatus(C.errorMessage(err)); }
   });
 })();

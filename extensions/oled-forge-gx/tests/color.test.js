@@ -4,6 +4,10 @@ const C = require('../lib/color.js');
 
 const black = C.parseColor('rgb(0, 0, 0)');
 const white = C.parseColor('rgba(255, 255, 255, 1)');
+const layers = C.compositeOver({ r: 255, g: 0, b: 0, a: 0.5 }, { r: 0, g: 0, b: 255, a: 0.5 });
+assert.equal(layers.a, 0.75, 'translucent layers retain combined opacity until an opaque backdrop is reached');
+const flattened = C.compositeOver(layers, white);
+assert.deepEqual(flattened, { r: 191.25, g: 63.75, b: 127.5, a: 1 });
 assert.equal(C.contrastRatio(black, white).toFixed(2), '21.00');
 
 const mappedDark = C.mapSurface(C.parseColor('rgb(22, 22, 24)'), {
@@ -19,6 +23,9 @@ assert.ok(C.luminance(mappedLight) < 0.08);
 
 const fixed = C.ensureContrast(C.parseColor('rgb(80, 80, 80)'), black, 7);
 assert.ok(C.contrastRatio(fixed, black) >= 6.99);
+const middleGray = C.parseColor('rgb(150, 150, 150)');
+const middleText = C.ensureContrast(white, middleGray, 7);
+assert.ok(C.contrastRatio(middleText, middleGray) >= 6.99, 'mid-gray surfaces need dark text rather than an unreadable white fallback');
 
 
 const tintedNeutral = C.parseColor('rgb(30, 32, 40)');

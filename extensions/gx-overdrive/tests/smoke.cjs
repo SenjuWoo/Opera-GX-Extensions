@@ -223,6 +223,30 @@ function send(message) {
   assert.equal(awake, false, 'paused-only downloads release keep-awake');
   assert.deepEqual(downloadActions, [], 'recovery respects a user-paused download');
 
+  const probe = { id: 98, active: false, discarded: false, pinned: false, audible: false, url: 'https://draft.example/', autoDiscardable: true };
+  context.probe = probe;
+  context.probeSettings = { ...localStore.settings, protectDirtyForms: true, whitelist: [] };
+  const ordinarySend = chrome.tabs.sendMessage;
+  for (const reply of [undefined, {}, { canDiscard: false }]) {
+    chrome.tabs.sendMessage = async () => reply;
+    assert.equal(await vm.runInContext('canDiscardTab(probe, probeSettings)', context), false, 'missing/invalid/dirty responses cannot authorize data loss');
+  }
+  chrome.tabs.sendMessage = async () => { throw new Error('No content script'); };
+  assert.equal(await vm.runInContext('canDiscardTab(probe, probeSettings)', context), false, 'failed probes remain protected');
+  chrome.tabs.sendMessage = () => new Promise(() => {});
+  assert.equal(await vm.runInContext('canDiscardTab(probe, probeSettings)', context), false, 'timed-out probes remain protected');
+  chrome.tabs.sendMessage = ordinarySend;
+  tabs.push(probe);
+  await send({ type: 'GX_SAVE_SETTINGS', patch: { autoHibernate: false, memoryGovernor: false } });
+  assert.equal(probe.autoDiscardable, false, 'automatic unloading remains opted out');
+  chrome.tabs.sendMessage = async () => ({ canDiscard: false });
+  await send({ type: 'GX_HIBERNATE_OTHERS' });
+  assert.ok(!discarded.includes(98), 'explicit hibernation still protects dirty forms');
+  chrome.tabs.sendMessage = ordinarySend;
+  await send({ type: 'GX_HIBERNATE_OTHERS' });
+  assert.ok(discarded.includes(98), 'explicit hibernation works while automatic engines are disabled');
+  assert.equal(probe.autoDiscardable, false, 'explicit action does not re-enable automatic unloading');
+
   console.log('GX Overdrive background smoke test: PASS');
 })().catch((error) => {
   console.error(error);

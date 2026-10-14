@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.3
+
+- Honor automatic-scanning and network-capture settings in open pages; stop observers and pending scans when disabled while keeping manual Scan available.
+- Recognize audio-prefixed HLS manifests and ISO segment MIME types before generic audio/video detection.
+- Accept media URLs containing a literal malformed percent escape without breaking detection.
+- Order session writes and navigation clears so an old in-flight save cannot resurrect the previous page's media.
+
 ## 1.3.2
 
 - Keep concurrent session hydration from losing media or restoring a cleared tab; restore items before download/analyze actions after worker suspension.

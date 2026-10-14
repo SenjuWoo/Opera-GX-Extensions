@@ -3,7 +3,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyTMpePYyXGaJ+4cURDfGYKsgsBD7xZwqR6B2YoYV5a8t9H5DeJW2/S+rDRbRnVQlDKzVSK7icwVmZIGor1OaCz7IDPYIY8hbMxkdY842MMpw31Vglu2LH0e7dxUy1ZGci75wf5g6ni5ZKNnQSboy7tlKlnG4ShTTWRxZ9DXpRzWQMzRVrEOmyV+ZGTx/0rEA+24G0r4mncFhcCR+IX6HxhHiKxIlUoR+W/urIE5X3unoW7fHq8RC5sHmfGRlTbQSG1IZQHY1xtEeK8/yXqbYoZIwzY6FuHaWfZIvxLAznRFWtH9E3LJN3aaIRPFLWyGvgGOxj4rT6eU8I/GBXEc/nwIDAQAB",
   "name": "PrismShot GX - Video Frame Capture",
   "short_name": "PrismShot GX",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minimum_chrome_version": "119",
   "description": "Fast, high-quality video frame screenshots with source-resolution capture, visible-frame fallback, clipboard, burst mode, and a dark Opera GX interface.",
   "permissions": [

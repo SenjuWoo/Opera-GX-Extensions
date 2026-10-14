@@ -3,7 +3,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmOL0yWw0cirCNkg6/8S3ehhy/hp6aoqch/QRveE+EszFV6FONgQsmip5xtfqywpidHpk5WDEf9yQs3AogDnzee8Cb+T78WXfcUKNIQkqdj5vBxSedqfLO/Xyy2SvcuZqCQUNerCyl3ifxSR7GauRvI8cIc0M5L3yRUjk2keHU3aBCECJQEmI9Ca80FpgnEjD+wsDuQB1tm8fmzn4/TjtNwNYTx8OGDYjqYxj7Z/4oL7oaYb2+eJB9tVqEeczKzye63Z7tAXuF+UfbiG0TB1VeFFulKD7y7NRGU1BMamPKWrJqTaIz++PHLOqMIyJ4WDQkqMgtoymHQGJ4ODKdL6KLQIDAQAB",
   "name": "OLED Forge GX",
   "short_name": "OLED Forge",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Adaptive true-black rendering with smarter surface harmonization, prose clarity, contrast protection, media controls, and OLED panel safeguards for Opera GX and Chromium browsers.",
   "minimum_chrome_version": "120",
   "permissions": [

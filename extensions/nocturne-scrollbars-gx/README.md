@@ -1,4 +1,4 @@
-# Nocturne Scrollbars GX
+# Nocturne Scrollbars GX 1.1.2
 
 A dark-modern scrollbar engine for Opera GX, Google Chrome, Microsoft Edge, Vivaldi, Brave, and other Chromium browsers.
 
@@ -37,7 +37,7 @@ Closed Shadow DOM cannot be styled from an extension. Nocturne's optional deep-c
 
 ## Performance model
 
-The default mode performs no recurring polling and no mutation scanning. It reads settings once, inserts one style element, then reacts only to settings changes. Optional Shadow DOM coverage adds a one-time idle scan and a mutation observer for newly inserted web components.
+The default mode performs no recurring polling and no mutation scanning. It reads settings once, inserts one style element, then reacts only to settings changes. Optional Shadow DOM coverage adds a one-time idle document scan and batches newly added subtrees into later idle scans, including additions within open shadow roots. Disabled or detached work is skipped, and stale settings reads cannot override a newer disable.
 
 ## Development
 

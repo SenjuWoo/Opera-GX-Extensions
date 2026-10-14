@@ -1,10 +1,12 @@
-# NebulaGrab 1.3.2 for Opera GX
+# NebulaGrab 1.3.3 for Opera GX
 
 NebulaGrab detects direct media, images, audio, HLS, DASH, blobs, and segmented CDN delivery in Opera GX and other Chromium browsers.
 
 For optional diagnostics, open this extension's service-worker console from `opera://extensions` and run `chrome.storage.local.get('settings').then(({settings}) => chrome.storage.local.set({settings: {...settings, debugLog: true}}))`. Repeat with `false` to disable. Version, effective capture flags, job starts and failures appear in that console; pairing tokens and captured request headers are omitted. Debug logging is off by default.
 
-Regression checks: `node extensions/nebulagrab/tests/regression.mjs` from the pack folder.
+Regression checks: `node extensions/nebulagrab/tests/regression.mjs` and `node extensions/nebulagrab/tests/scanner-settings.mjs` from the pack folder.
+
+Dashboard Settings apply immediately to open pages. Turning off automatic DOM scanning releases its observer and pending scans; manual **Scan** remains available. Network capture also controls detections from the page hook.
 
 ## Fragment-aware capture
 

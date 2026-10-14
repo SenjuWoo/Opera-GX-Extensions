@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.3 - 2026-10-13
+
+- Discard screenshots when their tab or URL changes before or during capture.
+- Mark stopped or failed partial answers as incomplete; report an empty reply as a failure.
+- Stop remaining tab extraction after cancellation and avoid querying extra tabs when none are selected.
+- Finish on the SSE completion marker and release stream readers on success and failure.
+- Deduplicate page links in one pass and stop at the extraction budget.
+
 ## 1.0.2 - 2026-10-12
 
 - Block duplicate submissions during page extraction and allow Stop to cancel before an API request starts.

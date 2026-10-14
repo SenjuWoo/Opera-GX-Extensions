@@ -131,10 +131,13 @@ const guardDocument = {
 };
 vm.runInNewContext(guardSource, {
   location: { hostname: "www.example.com", protocol: "http:" },
-  chrome: { runtime: { sendMessage: async () => ({ config: guardConfig }) } },
+  chrome: {
+    runtime: { sendMessage: async () => ({ config: guardConfig }) },
+    storage: { onChanged: { addListener() {} } }
+  },
   document: guardDocument,
   window: { addEventListener() {} },
-  MutationObserver: class { observe() {} },
+  MutationObserver: class { observe() {} disconnect() {} },
   setTimeout, clearTimeout, console
 });
 await new Promise(resolve => setImmediate(resolve));

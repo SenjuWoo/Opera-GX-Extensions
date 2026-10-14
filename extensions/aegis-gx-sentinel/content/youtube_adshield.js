@@ -17,6 +17,9 @@
   const DETECTION_TEXT = /(?:ad\s*blockers?\s+(?:are\s+not\s+allowed|violate)|video\s+playback\s+is\s+blocked|allow\s+youtube\s+ads|disable\s+(?:your\s+)?ad\s*blocker)/i;
 
   let config = null;
+  let configSignature = null;
+  let active = false;
+  let bypassed = false;
   let mode = "network";
   let detectionSent = false;
   let adActive = false;
@@ -36,18 +39,18 @@
     setTimeout(() => box.remove(), 5000);
   }
 
-  function visible(element) {
+  function visible(element, minWidth = 0, minHeight = 0) {
     if (!(element instanceof HTMLElement)) return false;
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
-    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 260 && rect.height > 100;
+    return style.display !== "none" && style.visibility !== "hidden" && rect.width > minWidth && rect.height > minHeight;
   }
 
   async function detectAntiAdblock() {
     if (detectionSent || !config?.adblock?.youtube?.autoFallback) return;
     const candidates = document.querySelectorAll("ytd-enforcement-message-view-model, tp-yt-paper-dialog, [role='dialog'], ytd-popup-container");
     for (const element of candidates) {
-      if (!visible(element)) continue;
+      if (!visible(element, 260, 100)) continue;
       const text = (element.innerText || element.textContent || "").slice(0, 2200);
       if (!DETECTION_TEXT.test(text)) continue;
       detectionSent = true;
@@ -59,17 +62,6 @@
         }
       } catch { /* extension may be reloading */ }
       break;
-    }
-  }
-
-  function hidePromotions(root = document) {
-    if (!config?.adblock?.youtube?.hidePromotions) return;
-    for (const selector of PROMO_SELECTORS) {
-      for (const element of root.querySelectorAll?.(selector) || []) {
-        if (!(element instanceof HTMLElement)) continue;
-        element.style.setProperty("display", "none", "important");
-        element.setAttribute("aria-hidden", "true");
-      }
     }
   }
 
@@ -89,8 +81,7 @@
     savedVideoState = {
       video,
       muted: video.muted,
-      volume: video.volume,
-      playbackRate: video.playbackRate
+      playbackRate: mode === "aggressive" ? video.playbackRate : null
     };
   }
 
@@ -100,8 +91,7 @@
     if (!state?.video?.isConnected) return;
     try {
       state.video.muted = state.muted;
-      state.video.volume = state.volume;
-      state.video.playbackRate = state.playbackRate;
+      if (state.playbackRate !== null && state.video.playbackRate === 16) state.video.playbackRate = state.playbackRate;
     } catch { /* player replaced the element */ }
   }
 
@@ -136,42 +126,65 @@
     }
   }
 
-  function process(root = document) {
-    hidePromotions(root);
+  function process() {
+    if (!active) return;
     handlePlayerAd();
     detectAntiAdblock();
   }
 
-  chrome.runtime.sendMessage({ type: "GET_STATE" }).then(response => {
-    config = response?.config;
-    const host = location.hostname.toLowerCase().replace(/^www\./, "");
+  function stop() {
+    active = false;
+    restoreVideo();
+    adActive = false;
+    handledThisAd = false;
+    observer?.disconnect();
+    clearInterval(timer);
+    timer = null;
+    document.getElementById("aegis-youtube-adshield-style")?.remove();
+  }
+
+  function applyConfig(next) {
+    config = next;
+    const signature = JSON.stringify([
+      config?.adblock?.enabled, config?.adblock?.allowlist, config?.adblock?.youtube?.enabled,
+      config?.adblock?.youtube?.mode, config?.adblock?.youtube?.hidePromotions, config?.adblock?.youtube?.autoFallback, bypassed
+    ]);
+    if (signature === configSignature) return;
+    configSignature = signature;
+    stop();
+    const host = location.hostname.toLowerCase();
     const allowed = (config?.adblock?.allowlist || []).some(domain => host === domain || host.endsWith(`.${domain}`));
-    if (!config?.adblock?.enabled || !config.adblock.youtube?.enabled || response?.youtubeBypassed || allowed) return;
+    if (!config?.adblock?.enabled || !config.adblock.youtube?.enabled || bypassed || allowed) return;
     mode = config.adblock.youtube.mode;
     if (mode === "network") return;
+    active = true;
+    detectionSent = false;
 
-    const style = document.createElement("style");
-    style.id = "aegis-youtube-adshield-style";
-    style.textContent = `${PROMO_SELECTORS.join(",")} { display:none !important; visibility:hidden !important; }`;
-    (document.documentElement || document).appendChild(style);
+    if (config.adblock.youtube.hidePromotions) {
+      const style = document.createElement("style");
+      style.id = "aegis-youtube-adshield-style";
+      style.textContent = `${PROMO_SELECTORS.join(",")} { display:none !important; visibility:hidden !important; }`;
+      (document.documentElement || document).appendChild(style);
+    }
 
-    process(document);
-    observer = new MutationObserver(records => {
-      for (const record of records) {
-        for (const node of record.addedNodes) {
-          if (node.nodeType === Node.ELEMENT_NODE) process(node);
-        }
-      }
-      handlePlayerAd();
-      detectAntiAdblock();
-    });
+    process();
+    observer ||= new MutationObserver(process);
     observer.observe(document, { subtree: true, childList: true });
-    timer = setInterval(() => process(document), mode === "aggressive" ? 350 : 800);
-    document.addEventListener("yt-navigate-finish", () => process(document));
-    window.addEventListener("pagehide", () => {
-      restoreVideo();
-      observer?.disconnect();
-      clearInterval(timer);
-    }, { once: true });
+    timer = setInterval(process, mode === "aggressive" ? 350 : 800);
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.config) applyConfig(changes.config.newValue);
+  });
+  chrome.runtime.sendMessage({ type: "GET_STATE" }).then(response => {
+    bypassed = Boolean(response?.youtubeBypassed);
+    applyConfig(config || response?.config);
   }).catch(() => {});
+  document.addEventListener("yt-navigate-finish", process);
+  window.addEventListener("pagehide", stop);
+  window.addEventListener("pageshow", event => {
+    if (!event.persisted) return;
+    configSignature = null;
+    applyConfig(config);
+  });
 })();

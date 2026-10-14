@@ -1,5 +1,11 @@
 ﻿# Changelog
 
+## 1.0.4
+
+- Mouse/touch compatibility events no longer reset one click's popup quota after its pointer event.
+- Concurrent settings changes preserve both choices and apply network rules in order.
+- Relative popup URLs resolve against the current page, preventing false cross-site blocks when the gesture requirement is disabled.
+
 ## 1.0.3
 
 - Turning the shield off now disables its network blocklist as well as its popup guard.

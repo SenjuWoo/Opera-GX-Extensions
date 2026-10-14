@@ -1,10 +1,12 @@
-# Aegis GX Sentinel 1.3.6
+# Aegis GX Sentinel 1.3.7
 
 A local-first Manifest V3 defensive extension for Opera GX and Chromium browsers.
 
 Trusted sites cover both HTTP and HTTPS on all ports. Use the popup's **Trust this site** on SillyTavern, or add `localhost`, `127.0.0.1`, or `[::1]` under **Trusted domains**. Each address is a separate host; trust the address shown in your browser. Reload an already-open page once after changing trust. Repeated downloads then remain allowed without refreshing between files. Untrusted sites keep the automatic multi-download block.
 
 Debug logging is off by default. Enable **Debug logging** in Command center; version, configuration summary and state changes appear at `opera://extensions` → Aegis → **service worker / Inspect**. Failures are reported there with their cause. No credentials are logged.
+
+Cosmetic filtering, HTTP warnings and an already loaded YouTube helper now follow settings changes immediately. Disabling YouTube filtering restores the mute/speed changes it made and stops its observer/timer; it preserves user volume and speed changes. A page reload is still needed to install a guard that was disabled when the page loaded, or to replace the MAIN-world popup wrapper.
 
 ## Stealth Ad Shield
 

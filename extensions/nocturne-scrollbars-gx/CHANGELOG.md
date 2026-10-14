@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.2 — 2026-10-13
+
+- Ignore stale asynchronous settings reads so an older refresh cannot re-enable scrollbars after a newer disable.
+- Scan newly added subtrees in coalesced idle batches instead of walking the full document on every mutation burst.
+- Include newly inserted shadow hosts themselves, skip detached queued nodes, and invalidate old idle batches across disable/re-enable.
+- Blend adaptive tracks against the body background first, falling back to the root backdrop when transparent.
+
 ## 1.1.1 — 2026-10-12
 
 - Restore detailed scrollbar styling in Chromium by keeping the competing standard properties at `auto`; retain a standard-only fallback.

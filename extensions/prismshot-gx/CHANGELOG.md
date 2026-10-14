@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Cancel captures when an explicitly selected video disappears instead of silently selecting a different player.
+- Require successful visible-frame preparation before taking a screenshot.
+- Check the selected frame's document identity after visible capture so navigation within the same tab cannot save a replacement page.
+
 ## 1.0.1
 
 - Sanitize slashes in page titles and filename templates so they cannot create unintended subdirectories.

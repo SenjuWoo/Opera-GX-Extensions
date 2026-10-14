@@ -21,10 +21,10 @@
     allowlist: []
   });
 
-  function normalizeHost(value) {
+  function normalizeHost(value, base = 'https://invalid.example') {
     if (typeof value !== 'string') return '';
     try {
-      return new URL(value, 'https://invalid.example').hostname.toLowerCase();
+      return new URL(value, base).hostname.toLowerCase();
     } catch {
       return '';
     }
@@ -70,7 +70,7 @@
     const settings = { ...DEFAULTS, ...(config || {}) };
     const now = Number(context?.now) || 0;
     const pageHost = normalizeHost(context?.pageUrl);
-    const targetHost = normalizeHost(context?.targetUrl);
+    const targetHost = normalizeHost(context?.targetUrl, context?.pageUrl);
 
     if (!settings.enabled) return { allow: true, reason: 'disabled' };
     if (isAllowlisted(pageHost, settings.allowlist)) return { allow: true, reason: 'site-allowlisted' };

@@ -178,6 +178,16 @@ class CompanionRegression(unittest.TestCase):
         self.assertEqual(partial.read_bytes(), DATA[:5])
         self.assertFalse(destination.exists())
 
+    def test_oversized_plain_fragment_cache_restarts_cleanly(self):
+        destination = self.root / "oversized-fragment.m4s"
+        partial = destination.with_suffix(".m4s.partial")
+        partial.write_bytes(DATA + b"stale")
+        entry = {"url": self.base + "/file", "headers": {}, "size": len(DATA)}
+        self.module.download_captured_fragment("missing", entry, destination,
+                                               {"done": 0, "bytes": 0, "total": 1}, threading.Lock())
+        self.assertEqual(destination.read_bytes(), DATA)
+        self.assertNotIn("Range", MediaHandler.received[-1][1])
+
     def test_remote_url_is_reconstructed_before_request(self):
         url = "HTTPS://BÜCHER.example:443/path?q=1#not-sent"
         expected = "https://xn--bcher-kva.example:443/path?q=1"

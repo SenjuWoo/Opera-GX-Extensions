@@ -14,7 +14,7 @@
 <p align="center">
   <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-ff3ea5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.12"><img src="https://img.shields.io/badge/release-v2026.10.12-8f9aa6?labelColor=0d0f11" alt="v2026.10.12"></a>
+  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.13"><img src="https://img.shields.io/badge/release-v2026.10.13-8f9aa6?labelColor=0d0f11" alt="v2026.10.13"></a>
   <img src="https://img.shields.io/badge/manifest-V3-8f9aa6?labelColor=0d0f11" alt="Manifest V3">
 </p>
 
@@ -38,24 +38,28 @@ No developer telemetry, analytics, or remote executable code. NEXUS Research use
 
 Trusted hosts cover HTTP and HTTPS on all ports; optional debug diagnostics remain local.
 
+![OLED readability regression fixture rendered in isolated Opera GX](docs/oled-readability.png)
+
+OLED regression coverage includes modern CSS colors, gradient text, masks and captions over preserved images. This controlled fixture has all nine extensions loaded.
+
 ## What you get
 
 | Extension | Version | What it does |
 | --- | --- | --- |
-| [GX Overdrive](extensions/gx-overdrive) | 1.2.3 | Performance governor: two-engine tab hibernation, long-chat folding for ChatGPT / Claude / Gemini / Perplexity, media throttling, download recovery |
-| [Aegis GX Sentinel](extensions/aegis-gx-sentinel) | 1.3.6 | Privacy and threat shield: stealth ad / tracker blocking, phishing and malware defence, leak protection, per-rule block log |
-| [NebulaGrab](extensions/nebulagrab) | 1.3.2 | Media detector with resumable downloads, HLS / DASH fragment capture, Smart Fetch |
-| [PopShield GX](extensions/popshield-gx) | 1.0.3 | Popup, popunder, click-hijack and interstitial blocker — behavioural, not blocklist-driven |
-| [Nocturne Scrollbars GX](extensions/nocturne-scrollbars-gx) | 1.1.1 | Dark modern scrollbars with presets, per-site profiles, adaptive contrast |
-| [NEXUS Research](extensions/nexus-research) | 1.0.2 | Deep web research through OpenRouter with page intelligence and citations |
-| [OLED Forge GX](extensions/oled-forge-gx) | 1.0.2 | True-black OLED treatment |
-| [PrismShot GX](extensions/prismshot-gx) | 1.0.1 | Video frame capture |
+| [GX Overdrive](extensions/gx-overdrive) | 1.2.4 | Performance governor: two-engine tab hibernation, long-chat folding for ChatGPT / Claude / Gemini / Perplexity, media throttling, download recovery |
+| [Aegis GX Sentinel](extensions/aegis-gx-sentinel) | 1.3.7 | Privacy and threat shield: stealth ad / tracker blocking, phishing and malware defence, leak protection, per-rule block log |
+| [NebulaGrab](extensions/nebulagrab) | 1.3.3 | Media detector with resumable downloads, HLS / DASH fragment capture, Smart Fetch |
+| [PopShield GX](extensions/popshield-gx) | 1.0.4 | Popup, popunder, click-hijack and interstitial blocker — behavioural, not blocklist-driven |
+| [Nocturne Scrollbars GX](extensions/nocturne-scrollbars-gx) | 1.1.2 | Dark modern scrollbars with presets, per-site profiles, adaptive contrast |
+| [NEXUS Research](extensions/nexus-research) | 1.0.3 | Deep web research through OpenRouter with page intelligence and citations |
+| [OLED Forge GX](extensions/oled-forge-gx) | 1.0.3 | True-black OLED treatment |
+| [PrismShot GX](extensions/prismshot-gx) | 1.0.2 | Video frame capture |
 
 Optional, not essential:
 
 | Extension | Version | What it does |
 | --- | --- | --- |
-| [Nexus Archive Helper](extensions/nexus-archive-helper) | 1.1.2 | Resolves archived, old, hidden-page and deleted Nexus Mods files via the official Nexus API |
+| [Nexus Archive Helper](extensions/nexus-archive-helper) | 1.1.3 | Resolves archived, old, hidden-page and deleted Nexus Mods files via the official Nexus API |
 
 ## Install
 
@@ -63,7 +67,7 @@ Download the `.crx` for what you want from the [latest release](https://github.c
 
 Chrome, Edge and Brave reject any `.crx` without a Web Store publisher signature. On those, use the `.zip`: unpack it, then Developer mode → Load unpacked.
 
-Latest packaged GitHub release: [v2026.10.12](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.12) (all nine extensions and Companion 1.3.1). See the [maintenance audit](AUDIT-2026-10-12.md) and [plain-text changelog](Release/CHANGELOG-2026.10.12.txt).
+Latest packaged GitHub release: [v2026.10.13](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.13) (all nine extensions and Companion 1.3.2). See the [maintenance audit](AUDIT-2026-10-13.md) and [plain-text changelog](Release/CHANGELOG-2026.10.13.txt).
 
 ## Build
 
@@ -112,7 +116,7 @@ Each extension has a private key in `tools/keys/`, which is **gitignored and mus
 
 Lost a key? Restore its backup before building. The builder stops on missing or mismatched keys for existing extensions, preserving their identities and settings. Only an extension without a pinned identity can receive a new signing key.
 
-The optional Archive Helper's existing installed ID differs from its pre-existing repository key. Its new CRX may install separately; preserve the old installation and settings until migration succeeds. The eight main extensions retain their installed identities.
+All nine signing identities match the currently observed installed IDs. Older Archive Helper copies from another signing identity may still install separately; preserve their settings/key until migration succeeds.
 
 ## Honest status
 
@@ -120,7 +124,7 @@ Verified in this tree:
 
 - CI: JavaScript syntax, extension regressions, TypeScript/build checks, generated runtime parity, companion tests, versions and signing-identity preservation
 - Manifest versions in the table above
-- Signed CRX identities and tamper rejection; fresh ZIP payloads and native Opera downloads. See [audit coverage](AUDIT-2026-10-12.md).
+- Signed CRX identities and tamper rejection; fresh ZIP payloads and native Opera downloads. See [audit coverage](AUDIT-2026-10-13.md).
 - Root [LICENSE](LICENSE) is MIT
 
 Not claimed:

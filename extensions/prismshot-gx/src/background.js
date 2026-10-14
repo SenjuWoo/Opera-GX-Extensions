@@ -200,8 +200,9 @@ async function captureOne({ tabId, frameId, videoId, settings, destination, burs
         type: 'PRISMSHOT_PREPARE_VISIBLE',
         videoId: selected.videoId,
         pauseDuringCapture: Boolean(settings.pauseDuringCapture)
-      }, 3000).catch(() => null);
-      restoreToken = prepare?.restoreToken || null;
+      }, 3000);
+      if (!prepare?.ok || !prepare.restoreToken) throw new Error(prepare?.error || 'The selected video could not be prepared. Try again.');
+      restoreToken = prepare.restoreToken;
 
       await sleep(clampInt(settings.visibleCaptureDelay, 0, 1000));
       const [activeTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
@@ -209,6 +210,10 @@ async function captureOne({ tabId, frameId, videoId, settings, destination, burs
       sourceDataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
       const [capturedTab] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
       if (capturedTab?.id !== tabId) throw new Error('The active tab changed during capture. Return to the video tab and try again.');
+      if (selected.documentId) {
+        const currentFrame = await chrome.webNavigation.getFrame({ tabId, frameId: selected.frameId });
+        if (currentFrame?.documentId !== selected.documentId) throw new Error('The page changed during capture. Try again after the video loads.');
+      }
       selected.currentTime = prepare?.currentTime ?? selected.currentTime;
       crop = clampCrop(selected.topRect, discovery.topViewport);
       if (!crop || crop.width < 8 || crop.height < 8) {
@@ -379,6 +384,7 @@ async function discoverVideos(tabId) {
       videos.push({
         ...video,
         frameId: response.frameId,
+        documentId: response.documentId,
         frameTitle: response.frameTitle,
         frameUrl: response.frameUrl
       });
@@ -398,18 +404,16 @@ async function discoverVideos(tabId) {
 async function probeFrameList(tabId, frameList) {
   return Promise.all(frameList.map(async (frame) => {
     const response = await sendToFrame(tabId, frame.frameId, { type: 'PRISMSHOT_PROBE' }, 1800).catch(() => null);
-    return response ? { frameId: frame.frameId, ...response } : null;
+    return response ? { ...response, frameId: frame.frameId, documentId: frame.documentId } : null;
   }));
 }
 
 function chooseVideo(videos, frameId, videoId) {
   if (frameId != null && videoId) {
-    const exact = videos.find((video) => video.frameId === frameId && video.videoId === videoId);
-    if (exact) return exact;
+    return videos.find((video) => video.frameId === frameId && video.videoId === videoId) || null;
   }
   if (videoId) {
-    const byId = videos.find((video) => video.videoId === videoId);
-    if (byId) return byId;
+    return videos.find((video) => video.videoId === videoId) || null;
   }
   return videos.find((video) => video.visible && video.readyState >= 2) || videos[0] || null;
 }

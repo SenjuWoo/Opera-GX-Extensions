@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = Object.freeze({
 const tabStores = new Map();
 const persistTimers = new Map();
 const hydrationLoads = new Map();
+const sessionWrites = new Map();
 const requestHeaderStores = new Map();
 const requestHeadersById = new Map();
 let settingsCache = null;
@@ -38,11 +39,11 @@ const EXTENSIONS = {
 };
 
 const MIME_KIND = [
+  [/(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)/i, 'hls'],
+  [/application\/dash\+xml/i, 'dash'],
   [/^image\//i, 'image'],
   [/^video\//i, 'video'],
-  [/^audio\//i, 'audio'],
-  [/application\/(vnd\.apple\.mpegurl|x-mpegurl)/i, 'hls'],
-  [/application\/dash\+xml/i, 'dash']
+  [/^audio\//i, 'audio']
 ];
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -74,7 +75,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   hydrationLoads.delete(tabId);
   clearTimeout(persistTimers.get(tabId));
   persistTimers.delete(tabId);
-  chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
+  queueSessionWrite(tabId, () => chrome.storage.session.remove(sessionKey(tabId))).catch(() => {});
 });
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   if (changeInfo.status === 'loading') {
@@ -487,11 +488,21 @@ function clearTab(tabId) {
   hydrationLoads.delete(tabId);
   clearTimeout(persistTimers.get(tabId));
   persistTimers.delete(tabId);
-  chrome.storage.session.remove(sessionKey(tabId)).catch(() => {});
+  queueSessionWrite(tabId, () => chrome.storage.session.remove(sessionKey(tabId))).catch(() => {});
   setBadge(tabId);
 }
 
 function sessionKey(tabId) { return `tab_${tabId}`; }
+
+function queueSessionWrite(tabId, operation) {
+  // Navigation/close must remove after an already running persist finishes.
+  const write = (sessionWrites.get(tabId) || Promise.resolve()).catch(() => {}).then(operation);
+  sessionWrites.set(tabId, write);
+  void write.finally(() => {
+    if (sessionWrites.get(tabId) === write) sessionWrites.delete(tabId);
+  }).catch(() => {});
+  return write;
+}
 
 async function hydrateTab(tabId) {
   if (!Number.isFinite(tabId) || tabStores.has(tabId)) return;
@@ -499,6 +510,7 @@ async function hydrateTab(tabId) {
   const load = (async () => {
     let list = [];
     try {
+      if (sessionWrites.has(tabId)) await sessionWrites.get(tabId).catch(() => {});
       const key = sessionKey(tabId);
       const stored = await chrome.storage.session.get(key);
       list = Array.isArray(stored[key]) ? stored[key] : [];
@@ -526,7 +538,7 @@ function schedulePersist(tabId) {
         headers: Object.fromEntries(Object.entries(entry.headers || {}).filter(([name]) => !['cookie', 'authorization'].includes(name.toLowerCase())))
       }))
     }));
-    try { await chrome.storage.session.set({ [sessionKey(tabId)]: items }); } catch (_) {}
+    try { await queueSessionWrite(tabId, () => chrome.storage.session.set({ [sessionKey(tabId)]: items })); } catch (_) {}
   }, 250));
 }
 
@@ -954,7 +966,8 @@ function segmentFilename(url) {
 function segmentInfo(url, mime = '') {
   let parsed;
   try { parsed = new URL(String(url)); } catch (_) { return null; }
-  const path = decodeURIComponent(parsed.pathname || '');
+  let path = parsed.pathname || '';
+  try { path = decodeURIComponent(path); } catch (_) {}
   const name = path.split('/').pop() || '';
   const ext = (name.match(/\.([a-z0-9]{1,8})$/i)?.[1] || '').toLowerCase();
   const lowerMime = String(mime || '').toLowerCase();

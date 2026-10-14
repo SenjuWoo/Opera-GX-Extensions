@@ -18,6 +18,7 @@ const MENU_ALLOW = 'ps-allow-site';
 const RULESET = 'popup_networks';
 
 let statsQueue = Promise.resolve();
+let settingsQueue = Promise.resolve();
 
 function clamp(value, min, max, fallback) {
   const numeric = Number(value);
@@ -45,12 +46,16 @@ async function getSettings() {
   return sanitize(stored.settings);
 }
 
-async function setSettings(patch) {
-  const next = sanitize({ ...(await getSettings()), ...patch });
-  await chrome.storage.local.set({ settings: next });
-  await applyRulesets(next);
-  if (next.debug) console.debug('PopShield: settings applied', next);
-  return next;
+function setSettings(patch) {
+  const run = settingsQueue.then(async () => {
+    const next = sanitize({ ...(await getSettings()), ...patch });
+    await chrome.storage.local.set({ settings: next });
+    await applyRulesets(next);
+    if (next.debug) console.debug('PopShield: settings applied', next);
+    return next;
+  });
+  settingsQueue = run.catch(() => {});
+  return run;
 }
 
 // The blocklist is the backup layer, so it must be switchable independently of

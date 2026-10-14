@@ -89,7 +89,7 @@
     const fid = positiveInt(fileId || ref.fileId);
     if (!fid) throw new Error('A file ID is required.');
     const url = new URL(`${baseFor(ref)}/files/${fid}/download_link.json`);
-    if (ref.key && ref.expires) {
+    if (fid === positiveInt(ref.fileId) && ref.key && ref.expires) {
       url.searchParams.set('key', ref.key);
       url.searchParams.set('expires', ref.expires);
     }

@@ -87,4 +87,13 @@ verdict = policy.evaluateOpen(state, { ...config }, { now, pageUrl: page, target
 assert.equal(verdict.allow, true, 'github oauth passes');
 assert.equal(policy.isAuthHost('notaccounts.google.com'), false, 'dot boundary on isAuthHost');
 
+verdict = policy.evaluateOpen(policy.createState(), { ...config, requireGesture: false }, {
+  now, pageUrl: page, targetUrl: '/print'
+});
+assert.equal(verdict.allow, true, 'relative same-site targets resolve against the current page');
+verdict = policy.evaluateOpen(policy.createState(), { ...config, requireGesture: false }, {
+  now, pageUrl: page, targetUrl: 'https://unrelated.example/print'
+});
+assert.equal(verdict.allow, false, 'cross-site targets still require a gesture');
+
 console.log('PopShield policy test: PASS');

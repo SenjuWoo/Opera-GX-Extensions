@@ -1,4 +1,4 @@
-# NebulaGrab Companion 1.3.1
+# NebulaGrab Companion 1.3.2
 
 NebulaGrab Companion is the localhost-only reliability and extraction engine for the Opera GX extension. It handles direct image/audio/video files, unencrypted HLS/DASH, captured segment families, and Smart Fetch page extraction through yt-dlp.
 
@@ -39,6 +39,7 @@ Regression checks: run `python -m unittest discover -s tests -v` from this folde
 - Preserves request headers, referrers, signed URLs, cookies, and byte ranges captured from the active tab.
 - Groups raw `seg-*`, `.ts`, `.m4s`, CMAF, and ISO segment requests into stream families.
 - Resumes each captured fragment independently from disk.
+- Restarts an oversized incomplete fragment cache instead of retrying a byte range past the end of the file.
 - Checks numbered sequences for gaps before assembly.
 - Associates initialization fragments with fragmented MP4 media.
 - Reconstructs cached fragment streams and remuxes them through ffmpeg without unnecessary re-encoding.

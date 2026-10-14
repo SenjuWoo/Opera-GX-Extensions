@@ -2,6 +2,8 @@
 
 A local-only Manifest V3 performance extension built for Opera GX and Chromium browsers.
 
+Version 1.2.4.
+
 ## What it actually accelerates
 
 - **Long ChatGPT conversations:** applies `content-visibility`, rendering containment, and non-destructive folding to old conversation turns.
@@ -74,7 +76,11 @@ The extension requests broad site access because automatic page optimization and
 
 ## Safety behavior
 
-GX Overdrive does not discard active, pinned, audible, still-loading, whitelisted, non-web, browser-protected (`autoDiscardable: false`), or dirty-form tabs by default. Unsaved-form detection reads the live contents of text fields and contenteditable areas in the tab, so clearing a field makes the tab eligible again. Browser APIs may still refuse a discard or download recovery operation; those failures are handled as best-effort no-ops.
+GX Overdrive does not discard active, pinned, audible, still-loading, whitelisted, non-web or dirty-form tabs by default. Automatic sweeps also honor `autoDiscardable: false`. An explicit hibernate click can work while automatic unloading is off, while keeping the other safety checks and leaving automatic unloading off.
+
+Unsaved-form protection requires an affirmative content-script response. Missing, busy or timed-out pages stay loaded. It checks changed text (including clearing a nonempty default), checkbox/radio/select controls and contenteditable text, including open shadow roots. Clearing a field whose default is empty makes it eligible again. Closed shadow roots, cross-origin embedded frames and application state outside DOM controls cannot be inspected. Browser APIs may still refuse a discard or download recovery operation; those failures are handled as best-effort no-ops.
+
+Image/video optimization restores its changed attributes when disabled and preserves later changes made by the page.
 
 Every hibernation is logged locally (last 25) and can be restored with one click from the dashboard.
 

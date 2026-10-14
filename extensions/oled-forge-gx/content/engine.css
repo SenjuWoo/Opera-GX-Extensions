@@ -3,12 +3,25 @@
   --oledforge-selection: rgba(127, 92, 255, 0.42);
 }
 
+:root[data-oledforge-active="true"].oledforge-bg,
 :root[data-oledforge-active="true"] .oledforge-bg {
   background-color: var(--oledforge-bg) !important;
 }
 
 :root[data-oledforge-active="true"] .oledforge-neutral-gradient {
   background-image: none !important;
+}
+
+:root[data-oledforge-active="true"] .oledforge-text-paint {
+  background-image: var(--oledforge-text-image) !important;
+}
+
+:root[data-oledforge-active="true"] .oledforge-before-text-paint::before {
+  background-image: var(--oledforge-before-text-image) !important;
+}
+
+:root[data-oledforge-active="true"] .oledforge-after-text-paint::after {
+  background-image: var(--oledforge-after-text-image) !important;
 }
 
 :root[data-oledforge-active="true"] .oledforge-before-bg::before {
@@ -24,8 +37,20 @@
   background-image: none !important;
 }
 
+:root[data-oledforge-active="true"].oledforge-fg,
 :root[data-oledforge-active="true"] .oledforge-fg {
   color: var(--oledforge-fg) !important;
+}
+
+:root[data-oledforge-active="true"].oledforge-fill,
+:root[data-oledforge-active="true"] .oledforge-fill {
+  /* currentColor keeps nested links from inheriting a fixed parent fill. */
+  -webkit-text-fill-color: currentColor !important;
+}
+
+:root[data-oledforge-active="true"].oledforge-preserved-fill,
+:root[data-oledforge-active="true"] .oledforge-preserved-fill {
+  -webkit-text-fill-color: var(--oledforge-preserved-fill) !important;
 }
 
 :root[data-oledforge-active="true"] .oledforge-prose {
@@ -75,6 +100,12 @@
 }
 
 @media print {
+  :root[data-oledforge-active="true"].oledforge-fill,
+  :root[data-oledforge-active="true"] .oledforge-fill,
+  :root[data-oledforge-active="true"].oledforge-preserved-fill,
+  :root[data-oledforge-active="true"] .oledforge-preserved-fill {
+    -webkit-text-fill-color: revert !important;
+  }
   :root[data-oledforge-active="true"] .oledforge-bg,
   :root[data-oledforge-active="true"] .oledforge-fg,
   :root[data-oledforge-active="true"] .oledforge-border {
@@ -87,5 +118,14 @@
   :root[data-oledforge-active="true"] .oledforge-before-gradient::before,
   :root[data-oledforge-active="true"] .oledforge-after-gradient::after {
     background-image: revert !important;
+  }
+  :root[data-oledforge-active="true"] .oledforge-text-paint,
+  :root[data-oledforge-active="true"] .oledforge-before-text-paint::before,
+  :root[data-oledforge-active="true"] .oledforge-after-text-paint::after {
+    background-image: revert !important;
+  }
+  :root[data-oledforge-active="true"] .oledforge-before-bg::before,
+  :root[data-oledforge-active="true"] .oledforge-after-bg::after {
+    background-color: revert !important;
   }
 }

@@ -1,4 +1,4 @@
-# PrismShot GX 1.0.1
+# PrismShot GX 1.0.2
 
 A dark, modern Manifest V3 extension for capturing high-quality still frames from HTML video in Opera GX and Chromium browsers.
 
@@ -67,6 +67,8 @@ Highest-quality decoded video pixels. It does not include browser-rendered capti
 ### What you see
 
 Captures the rendered player rectangle from the active tab. Use it for captions, filters, overlays, or players that block direct extraction. The video must be visible in the active browser tab.
+
+If the selected video disappears or its page navigates during capture, PrismShot cancels the capture. Retry after the new player loads.
 
 ## Filename tokens
 

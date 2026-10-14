@@ -1,13 +1,13 @@
 importScripts('core.js', 'browser-resolver.js');
 const C = globalThis.NexusArchiveCore;
 const R = globalThis.NexusArchiveResolver;
-const APP_HEADERS = { Accept: 'application/json', 'Application-Name': 'Nexus Archive Helper Personal', 'Application-Version': '1.1.2' };
+const APP_HEADERS = { Accept: 'application/json', 'Application-Name': 'Nexus Archive Helper Personal', 'Application-Version': '1.1.3' };
 let lastQuota = { hourlyRemaining: null, dailyRemaining: null, hourlyLimit: null, dailyLimit: null };
 let debug = false;
 const storageReady = chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }).then(async () => {
   const saved = await chrome.storage.local.get('debug');
   debug = saved.debug === true;
-  if (debug) console.debug('Nexus Archive Helper', '1.1.2', 'startup', { apiOrigin: 'https://api.nexusmods.com', timeoutMs: 30000 });
+  if (debug) console.debug('Nexus Archive Helper', '1.1.3', 'startup', { apiOrigin: 'https://api.nexusmods.com', timeoutMs: 30000 });
 });
 storageReady.catch((error) => console.error('Nexus Archive Helper: storage isolation failed', error));
 

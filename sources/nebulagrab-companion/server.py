@@ -33,7 +33,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, BinaryIO
 
-VERSION = "1.3.1"
+VERSION = "1.3.2"
 HOST = "127.0.0.1"
 PORT = 17891
 ROOT = Path(__file__).resolve().parent
@@ -1033,9 +1033,10 @@ def download_captured_fragment(job_id: str, entry: dict[str, Any], destination: 
             if captured_range:
                 absolute_start, absolute_end = captured_range
                 expected_length = (absolute_end - absolute_start + 1) if absolute_end is not None else expected_length
-                if expected_length is not None and existing > expected_length:
-                    partial.unlink(missing_ok=True)
-                    existing = 0
+            if expected_length is not None and existing > expected_length:
+                partial.unlink(missing_ok=True)
+                existing = 0
+            if captured_range:
                 if expected_length is not None and existing == expected_length:
                     partial.replace(destination)
                     with lock:

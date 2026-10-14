@@ -1,6 +1,21 @@
 # Extension pack state
 
-Milestone: maintenance release published and downloaded bytes verified, 2026-10-13.
+Milestone: second-pass implementation, local gate and fresh package/native validation passed, 2026-10-14; CI/publication pending.
+
+- User requested deeper coverage of all nine extensions, especially OLED detection/text readability. No exact failing site was remembered; current examples looked fine, so deterministic adversarial fixtures and native rendering will define the regression evidence.
+- Starting revision for this pass: clean `2904cea`. Full last-known-good tracked snapshot and packages saved as `_archive/audit-2026-10-13/last-known-good-2904cea.zip`; SHA-256 `1744cf7fe781ac8fe6c61f5a2dd18ba4a11ea1cb2ada99e8cbfae9f8552a475b`.
+- Candidate versions: Aegis 1.3.7, GX 1.2.4, NebulaGrab 1.3.3, PrismShot 1.0.2, PopShield 1.0.4, Nocturne 1.1.2, OLED Forge 1.0.3, Research 1.0.3, Archive Helper 1.1.3, companion 1.3.2. Planned tag `v2026.10.13` retains the audit start date. Details: `AUDIT-2026-10-13.md`; plain changelog: `Release/CHANGELOG-2026.10.13.txt`.
+- Fixes cover live setting/observer handling, popup quota/save races, dirty-tab protection, capture/navigation races, cancellation/SSE cleanup, exact-file NXM authorization, real userscript abort deadlines and oversized fragment-cache recovery. Final integrated source gate is being logged under the ignored audit tree.
+- OLED native red/green covers modern CSS colors, layered/deep backdrops, neutral-gradient contrast, text fill, nested brand links, mask/pseudo-mask icons, themes/stylesheets, queue settling and print/disable restoration. The final inherited image-caption bug was reproduced, then fixed at the image boundary; original/enabled/disabled fill all `[32,32,40,255]`. All six OLED suites passed after this fix. Independent focused review found no material defect.
+- Native Opera GX 136.0.6008.111 / Chromium 152.0.7977.120, isolated profile: all nine loaded for `node tools/oled-browser-smoke.mjs <native-opera.exe> extensions <screenshot.png> --pack`. Log/pixels `_archive/audit-2026-10-13/oled-inheritance-green.log` and `.png`; pixels inspected and readable.
+- Native GX/Nebula checks passed: clean-tab manual hibernation with automatic engines off and autoDiscardable false; unsaved draft retained; disabled automatic/network ingestion, working manual scan and live enable/disable. Harness/log `_archive/audit-2026-10-13/pack-browser-smoke.mjs` and `.log`.
+- Build: `pwsh -NoProfile -File tools/package-companion.ps1`, then `pwsh -NoProfile -File tools/build.ps1 -NoLaunch`; signing keys remain ignored. Copy built Archive userscript from its source dist to current versioned Release path before checksumming. Diagnostics and normal-profile boundaries below remain unchanged.
+- Next: commit/push; wait exact-SHA CI/CodeQL and query security alerts; rebuild from green SHA; tag/publish; download all public assets unauthenticated and compare bytes; update this ledger. Previous release remains live until those steps pass.
+- Final local gate passed: 25 extension suites, two tooling suites, Research 11 tests/typecheck/build/parity, Archive 41 tests/build/parity, companion 16 tests, version sync and 81 JS syntax checks. All 176 recorded inputs remained unchanged (`integrated-local-result.json`).
+- Packages built: all nine CRX identities/signatures verified and tampered bytes rejected; 171 extracted extension payload files and all 10 companion payload files exactly match source; userscript matches built dist; complete 22-asset checksum inventory passed. Extracted companion health API starts version 1.3.2. All nine installed identities now match the pinned signing keys, superseding the prior Archive mismatch observation.
+- Native extracted packages: all nine UI entrypoints loaded, HTTP/HTTPS/IPv4/IPv6 trusted permission checks and three same-page downloads passed (`package-native.log`). Packaged OLED passed all rendering/lifecycle assertions (`oled-package.log`); a concurrent-run service-worker startup timeout was resolved by running that check alone, with no production change.
+
+Previous released baseline:
 
 - Starting source: `70ac680`, clean main branch. Nine extension folders audited.
 - Current versions: Aegis 1.3.6, GX Overdrive 1.2.3, NebulaGrab 1.3.2, PrismShot 1.0.1, PopShield 1.0.3, Nocturne 1.1.1, OLED Forge 1.0.2, NEXUS Research 1.0.2, Nexus Archive Helper 1.1.2; companion 1.3.1.
@@ -16,4 +31,4 @@ Milestone: maintenance release published and downloaded bytes verified, 2026-10-
 
 Normal-profile installation, live OpenRouter/Nexus requests, site-specific media extraction and long-duration browsing were not performed. Extension debug toggles/log consoles are documented per README; companion logs use `%LOCALAPPDATA%/NebulaGrab/Logs/companion.log` when enabled.
 
-Maintenance is complete. Continue from this file and `git status`; do not redo completed source research. Local verification evidence remains under the ignored audit tree.
+Continue from this file and `git status`; do not redo completed source research. Local verification evidence remains under the ignored audit trees. The second pass is not yet released.

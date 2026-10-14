@@ -55,7 +55,8 @@ test('split CRLF, UTF-8, and a final unterminated SSE event are preserved', asyn
   const bytes = new TextEncoder().encode(events);
   let index = 0;
   context.fetch = async () => ({ ok: true, body: { getReader: () => ({
-    read: async () => index < bytes.length ? { done: false, value: bytes.slice(index, ++index) } : { done: true }
+    read: async () => index < bytes.length ? { done: false, value: bytes.slice(index, ++index) } : { done: true },
+    cancel: async () => {}, releaseLock() {}
   }) } });
   vm.runInContext(`
     gatherBrowserContext = async () => ({ text: '', image: null, extractedTabs: 0 });
@@ -121,4 +122,115 @@ test('Opera toolbar fallback remembers the originating web tab without replacing
   assert.equal(writes.length, 1);
   assert.equal(writes[0].nexus_source_tab, 1);
   assert.equal(created.length, 2);
+});
+
+test('screenshots are discarded if the context tab changes before or during capture', async () => {
+  const context = harness();
+  let active = { id: 1, windowId: 1, url: 'https://example.com/article' };
+  let captures = 0;
+  context.chrome.tabs = {
+    query: async () => [active],
+    captureVisibleTab: async () => {
+      captures += 1;
+      active = { id: 2, windowId: 1, url: 'https://example.com/private' };
+      return 'data:image/jpeg;base64,private';
+    }
+  };
+  context.expected = { ...active };
+  assert.equal(await vm.runInContext('captureCurrentTab(expected)', context), null);
+  assert.equal(captures, 1);
+  assert.equal(await vm.runInContext('captureCurrentTab(expected)', context), null);
+  assert.equal(captures, 1);
+});
+
+test('partial failed and stopped responses visibly report that research was interrupted', async () => {
+  for (const aborted of [false, true]) {
+    const context = harness();
+    context.failure = new Error(aborted ? 'stopped' : 'network disconnected');
+    if (aborted) context.failure.name = 'AbortError';
+    vm.runInContext(`
+      renderConversation = () => {}; autoResizeComposer = () => {}; setRunning = () => {};
+      saveCurrentSession = async () => {}; processPendingContext = async () => {}; toast = () => {};
+      streamOpenRouter = async (_prompt, assistant) => { assistant.content = 'Partial answer'; throw failure; };
+    `, context);
+    await vm.runInContext("runResearch('question')", context);
+    const text = vm.runInContext('messages[1].content', context);
+    assert.match(text, /^Partial answer/);
+    assert.match(text, aborted ? /stopped|incomplete/i : /failed|incomplete/i);
+  }
+});
+
+test('page extraction stops visiting anchors once its unique-link budget is full', () => {
+  const context = harness();
+  let reads = 0;
+  const anchors = Array.from({ length: 1000 }, (_, index) => ({
+    innerText: `Link ${index}`,
+    get href() { reads += 1; return `https://example.com/${index}`; }
+  }));
+  Object.assign(context.document, {
+    title: 'Article', documentElement: { lang: 'en' },
+    body: { cloneNode: () => ({ querySelectorAll: () => [], querySelector: () => null, innerText: 'Article text' }) },
+    querySelector: () => null,
+    querySelectorAll: (selector) => selector === 'a[href]' ? anchors : []
+  });
+  context.window = { getSelection: () => '' };
+  context.navigator = { language: 'en' };
+  context.location = { href: 'https://example.com/article' };
+  const result = vm.runInContext('extractPageInTab(1000)', context);
+  assert.equal(result.links.length, 180);
+  assert.ok(reads <= 180, `Visited ${reads} links beyond the output budget`);
+});
+
+test('SSE DONE ends research and closes its reader without waiting for a server disconnect', async () => {
+  const context = harness();
+  let reads = 0;
+  let cancelled = false;
+  let released = false;
+  context.fetch = async () => ({ ok: true, body: { getReader: () => ({
+    read: async () => {
+      if (reads++) throw new Error('Read after DONE');
+      return { done: false, value: new TextEncoder().encode('data: {"choices":[{"delta":{"content":"Answer"}}]}\n\ndata: [DONE]\n\n') };
+    },
+    cancel: async () => { cancelled = true; },
+    releaseLock: () => { released = true; }
+  }) } });
+  vm.runInContext(`
+    gatherBrowserContext = async () => ({ text: '', image: null, extractedTabs: 0 });
+    activeController = new AbortController(); assistant = { content: '' };
+  `, context);
+  await vm.runInContext("streamOpenRouter('question', assistant)", context);
+  assert.equal(context.assistant.content, 'Answer');
+  assert.equal(cancelled, true);
+  assert.equal(released, true);
+});
+
+test('an empty response is an explicit failure and closes its reader', async () => {
+  const context = harness();
+  let released = false;
+  context.fetch = async () => ({ ok: true, body: { getReader: () => ({
+    read: async () => ({ done: true }),
+    cancel: async () => {}, releaseLock: () => { released = true; }
+  }) } });
+  vm.runInContext(`
+    gatherBrowserContext = async () => ({ text: '', image: null, extractedTabs: 0 });
+    activeController = new AbortController(); assistant = { content: '' };
+  `, context);
+  await assert.rejects(vm.runInContext("streamOpenRouter('question', assistant)", context), /no answer text/i);
+  assert.equal(released, true);
+});
+
+test('Stop interrupts remaining selected-tab work after the current extraction returns', async () => {
+  const context = harness();
+  let extractions = 0;
+  context.chrome.tabs = { query: async () => [
+    { id: 1, url: 'https://example.com/one' },
+    { id: 2, url: 'https://example.com/two' }
+  ] };
+  context.countExtraction = () => { extractions += 1; };
+  vm.runInContext(`
+    activeController = new AbortController(); includePage = true; selectedTabIds = new Set([2]);
+    extractTab = async () => { countExtraction(); activeController.abort(); return null; };
+  `, context);
+  await assert.rejects(vm.runInContext('gatherBrowserContext()', context), { name: 'AbortError' });
+  assert.equal(extractions, 1);
 });

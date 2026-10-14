@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.2
+
+- Restart oversized incomplete fragment caches before requesting a resume range, including fragments without an explicit captured byte range.
+
 ## 1.3.1
 
 - Strip captured cookies and authorization from cross-origin Python redirects and nested HLS playlist inspection.

@@ -26,6 +26,9 @@ try {
   $archive = Join-Path $stageRoot 'companion.zip'
   Compress-Archive -Path (Join-Path $payload '*') -DestinationPath $archive -CompressionLevel Optimal
   Move-Item -LiteralPath $archive -Destination (Join-Path $releaseRoot "nebulagrab-companion-v$version.zip") -Force
+  Get-ChildItem -LiteralPath $releaseRoot -Filter 'nebulagrab-companion-v*.zip' -File |
+    Where-Object Name -ne "nebulagrab-companion-v$version.zip" |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
   Write-Host "Companion ${version}: $($files.Count) payload files packaged; personal configuration excluded."
 } finally {
   $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar

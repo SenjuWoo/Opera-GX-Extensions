@@ -24,11 +24,15 @@ Use the `.crx` from Releases when your browser accepts self-hosted CRX installat
 
 Install the `.user.js` release artifact.
 
+Use a current Tampermonkey release with redirect controls (build 6180 or newer). The userscript rejects API redirects, aborts requests after 30 seconds, and uses Tampermonkey's tab-opening permission so a slow download authorization does not lose its popup gesture. An update may ask you to accept the added `GM_openInTab` grant.
+
 ## Nexus API key
 
 Open **Settings** in the extension, paste a Nexus Personal API key, and choose **Save + test**. The key is stored in browser local extension storage and sent only to the Nexus API.
 
 In Tampermonkey, use **Set API key + Test** or the **Set Nexus Archive Helper API key** menu command. Setup uses a native prompt; the saved key is never inserted into the site's HTML.
+
+Overlapping lookups keep the newest requested result. A pasted NXM key and expiry are sent only for their original file ID; other files use your account's normal authorization.
 
 ## Debug log
 

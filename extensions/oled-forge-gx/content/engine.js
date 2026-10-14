@@ -1,3 +1,4 @@
+// Keep every color override reversible so dynamic pages retain their own styling.
 (() => {
   'use strict';
 
@@ -80,6 +81,18 @@
     'DIV', 'FORM', 'DIALOG', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH',
     'BUTTON', 'INPUT', 'TEXTAREA', 'SELECT', 'OPTION', 'PRE', 'CODE', 'BLOCKQUOTE'
   ]);
+  const APPLIED_CLASSES = [
+    'oledforge-bg', 'oledforge-fg', 'oledforge-fill', 'oledforge-preserved-fill', 'oledforge-prose', 'oledforge-border',
+    'oledforge-neutral-gradient', 'oledforge-before-bg', 'oledforge-after-bg',
+    'oledforge-before-gradient', 'oledforge-after-gradient',
+    'oledforge-text-paint', 'oledforge-before-text-paint', 'oledforge-after-text-paint',
+    'oledforge-media-balanced', 'oledforge-media-deep', 'oledforge-static-ui'
+  ];
+  const APPLIED_PROPERTIES = [
+    '--oledforge-bg', '--oledforge-fg', '--oledforge-preserved-fill', '--oledforge-border',
+    '--oledforge-before-bg', '--oledforge-after-bg', '--oledforge-text-image',
+    '--oledforge-before-text-image', '--oledforge-after-text-image'
+  ];
 
   const state = {
     settings: { ...DEFAULTS },
@@ -88,12 +101,17 @@
     active: false,
     pageKind: 'unknown',
     queue: [],
+    queueHead: 0,
     queued: new WeakSet(),
     scanning: false,
     drainId: 0,
     debugLog: false,
     observer: null,
     viewportTimer: 0,
+    themeTimer: 0,
+    settingsRead: 0,
+    printing: false,
+    resumeAfterPrint: false,
     idleTimer: 0,
     wakeTimer: 0,
     shade: null,
@@ -136,19 +154,22 @@
   }
 
   async function loadSettings() {
+    const read = ++state.settingsRead;
     const [data, local] = await Promise.all([
       storageGet(['oledForgeSettings', 'oledForgeSites']),
       chrome.storage.local.get('debugLog')
     ]);
+    if (read !== state.settingsRead) return false;
     state.debugLog = local.debugLog === true;
     state.settings = { ...DEFAULTS, ...(data.oledForgeSettings || {}) };
     state.site = { enabled: true, ...((data.oledForgeSites || {})[host] || {}) };
     state.profile = detectProfile();
     debug('resolved settings', state.settings, state.site);
+    return true;
   }
 
   function isEnabled() {
-    return Boolean(state.settings.enabled && state.site.enabled && !siteExcluded(state.settings));
+    return Boolean(!state.printing && state.settings.enabled && state.site.enabled && !siteExcluded(state.settings));
   }
 
   function resetStats() {
@@ -195,24 +216,24 @@
     return rect.area > viewportArea * 0.007 || rect.width > 280 || rect.height > 120;
   }
 
-  function computedBackground(element, maxDepth = 8) {
+  function computedBackground(element) {
     let current = element;
-    let depth = 0;
     let accumulated = null;
-    while (current && depth < maxDepth) {
+    while (current) {
       const mapped = state.appliedBackground.get(current);
       const style = getComputedStyle(current);
+      if (!mapped && style.backgroundImage && style.backgroundImage !== 'none') return null;
       const parsed = mapped || C.parseColor(style.backgroundColor);
       if (parsed && parsed.a > 0.01) {
         accumulated = accumulated ? C.compositeOver(accumulated, parsed) : parsed;
         if ((parsed.a == null ? 1 : parsed.a) >= 0.98) return accumulated;
       }
       current = current.parentElement;
-      depth += 1;
     }
-    return accumulated || (state.pageKind === 'light'
+    const fallback = state.pageKind === 'light'
       ? { r: 6, g: 6, b: 8, a: 1 }
-      : { r: 0, g: 0, b: 0, a: 1 });
+      : { r: 0, g: 0, b: 0, a: 1 };
+    return accumulated ? C.compositeOver(accumulated, fallback) : fallback;
   }
 
   function setVar(element, name, value) {
@@ -225,6 +246,34 @@
 
   function pureBlack(alpha = 1) {
     return { r: 0, g: 0, b: 0, a: alpha };
+  }
+
+  function isTextPaint(style) {
+    return String(style.backgroundClip || style.webkitBackgroundClip || '').split(/,\s*/).includes('text');
+  }
+
+  function isMasked(style) {
+    return [style.maskImage, style.webkitMaskImage].some(value => value && value !== 'none');
+  }
+
+  function applyTextPaint(element, style, pseudo = '') {
+    const backdrop = computedBackground(pseudo ? element : element.parentElement);
+    const gradient = D.readableTextGradient(style.backgroundImage, backdrop);
+    if (!gradient) return;
+    const side = pseudo ? `${pseudo.slice(2)}-` : '';
+    setVar(element, `--oledforge-${side}text-image`, gradient);
+    element.classList.add(`oledforge-${side}text-paint`);
+    markApplied(element);
+    state.stats.foregrounds += 1;
+  }
+
+  function restoreElement(element) {
+    element.classList.remove(...APPLIED_CLASSES);
+    for (const property of APPLIED_PROPERTIES) element.style.removeProperty(property);
+    state.appliedBackground.delete(element);
+    state.pseudoInspected.delete(element);
+    state.staticElements.delete(element);
+    state.applied.delete(element);
   }
 
   function mapSurfaceForElement(element, source, rect) {
@@ -254,11 +303,22 @@
   }
 
   function applyBackground(element, source, style, rect) {
+    if (isTextPaint(style)) return null;
+    if (isMasked(style)) {
+      const backdrop = element.parentElement ? computedBackground(element.parentElement) : pureBlack();
+      if (!source || !backdrop || !C.isNearNeutral(source)) return null;
+      const glyph = C.readableTextColor(source, backdrop, { targetContrast: 4.5, forceOpaque: true });
+      setVar(element, '--oledforge-bg', C.toCss(glyph));
+      element.classList.add('oledforge-bg');
+      markApplied(element);
+      return backdrop;
+    }
     if (!isSurfaceCandidate(element, style, rect)) return null;
 
     const gradient = state.profile.cleanNeutralGradients
       ? D.analyzeGradient(style.backgroundImage, state.pageKind)
       : null;
+    if (style.backgroundImage && style.backgroundImage !== 'none' && !gradient) return null;
     const effectiveSource = source && source.a >= 0.055 ? source : gradient?.average;
     if (!effectiveSource) return null;
 
@@ -318,9 +378,37 @@
     });
   }
 
+  function preserveImageText(element) {
+    const removed = [];
+    // Read author paint without converted ancestors leaking light text onto preserved images.
+    try {
+      for (let ancestor = element; ancestor; ancestor = ancestor.parentElement) {
+        const classes = ['oledforge-fg', 'oledforge-fill', 'oledforge-preserved-fill']
+          .filter(name => ancestor.classList.contains(name));
+        if (classes.length) {
+          removed.push([ancestor, classes]);
+          ancestor.classList.remove(...classes);
+        }
+      }
+      const original = getComputedStyle(element);
+      setVar(element, '--oledforge-fg', original.color);
+      setVar(element, '--oledforge-preserved-fill', original.webkitTextFillColor || original.color);
+    } finally {
+      for (const [ancestor, classes] of removed) ancestor.classList.add(...classes);
+    }
+    element.classList.add('oledforge-fg');
+    if (element.style.getPropertyValue('--oledforge-preserved-fill') === element.style.getPropertyValue('--oledforge-fg')) {
+      element.classList.add('oledforge-fill');
+      element.style.removeProperty('--oledforge-preserved-fill');
+    } else {
+      element.classList.add('oledforge-preserved-fill');
+    }
+    markApplied(element);
+  }
+
   function applyForeground(element, style, background, rect) {
-    if (!hasDirectText(element)) return;
-    const source = C.parseColor(style.color);
+    if (!background || !hasDirectText(element) || isTextPaint(style)) return;
+    const source = C.parseColor(style.webkitTextFillColor || style.color);
     if (!source || source.a < 0.08) return;
 
     const effectiveSource = C.compositeOver(source, background);
@@ -345,6 +433,8 @@
 
     setVar(element, '--oledforge-fg', C.toCss(mapped));
     element.classList.add('oledforge-fg');
+    const renderedFill = C.parseColor(getComputedStyle(element).webkitTextFillColor);
+    if (renderedFill && C.colorDistance(renderedFill, mapped) >= 3) element.classList.add('oledforge-fill');
     if (prose) {
       element.classList.add('oledforge-prose');
       state.stats.prose += 1;
@@ -392,6 +482,7 @@
     if (!state.profile.inspectPseudoSurfaces || rect.area < 1200) return;
     const style = getComputedStyle(element, pseudo);
     if (!style || style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+    if (isTextPaint(style)) { applyTextPaint(element, style, pseudo); return; }
 
     const gradient = state.profile.cleanNeutralGradients
       ? D.analyzeGradient(style.backgroundImage, state.pageKind)
@@ -399,6 +490,7 @@
     const source = C.parseColor(style.backgroundColor);
     const effectiveSource = source && source.a >= 0.055 ? source : gradient?.average;
     if (!effectiveSource || !C.isNearNeutral(effectiveSource)) return;
+    if (style.backgroundImage && style.backgroundImage !== 'none' && !gradient) return;
 
     const positioned = style.position === 'absolute' || style.position === 'fixed' || style.position === 'sticky';
     const width = parseFloat(style.width);
@@ -414,6 +506,11 @@
     });
     if (state.pageKind === 'dark' && state.settings.pureBlack && C.isNearNeutral(effectiveSource) && C.luminance(effectiveSource) < state.profile.mergeMaxLuminance) {
       mapped = pureBlack(effectiveSource.a == null ? 1 : effectiveSource.a);
+    }
+    if (isMasked(style)) {
+      const backdrop = computedBackground(element);
+      if (!backdrop) return;
+      mapped = C.readableTextColor(effectiveSource, backdrop, { targetContrast: 4.5, forceOpaque: true });
     }
 
     const side = pseudo === '::before' ? 'before' : 'after';
@@ -449,6 +546,8 @@
   function processElement(element) {
     if (!(element instanceof Element) || TAG_SKIP.has(element.tagName)) return;
     if (!element.isConnected) return;
+    if (element.id === 'oledforge-idle-shade') return;
+    if (state.applied.has(element)) restoreElement(element);
     state.stats.scanned += 1;
 
     if (MEDIA_TAGS.has(element.tagName)) {
@@ -460,14 +559,16 @@
 
     const style = getComputedStyle(element);
     if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return;
+    if (isTextPaint(style)) { applyTextPaint(element, style); return; }
     const rect = elementRect(element);
     if (rect.width < 1 || rect.height < 1) return;
 
     const sourceBg = C.parseColor(style.backgroundColor);
     const mappedBg = applyBackground(element, sourceBg, style, rect);
     const effectiveBg = mappedBg || computedBackground(element);
+    if (!effectiveBg && style.backgroundImage && style.backgroundImage !== 'none') preserveImageText(element);
     applyForeground(element, style, effectiveBg, rect);
-    applyBorder(element, style, effectiveBg);
+    if (effectiveBg) applyBorder(element, style, effectiveBg);
     if (shouldInspectPseudo(element, style, rect)) {
       state.pseudoInspected.add(element);
       applyPseudoSurface(element, '::before', rect);
@@ -487,16 +588,19 @@
       const profile = state.settings.performance;
       const hardLimit = profile === 'turbo' ? 900 : profile === 'eco' ? 160 : 420;
       let processed = 0;
-      while (state.queue.length && processed < hardLimit) {
+      while (state.queueHead < state.queue.length && processed < hardLimit) {
         if (deadline && !deadline.didTimeout && deadline.timeRemaining() < 2) break;
-        const element = state.queue.shift();
+        const element = state.queue[state.queueHead];
+        state.queue[state.queueHead++] = null;
         state.queued.delete(element);
         processElement(element);
         processed += 1;
       }
-      if (state.queue.length && state.active) {
+      if (state.queueHead < state.queue.length && state.active) {
         state.drainId = requestIdleCallback(runner, { timeout: 220 });
       } else {
+        state.queue.length = 0;
+        state.queueHead = 0;
         state.scanning = false;
       }
     };
@@ -580,15 +684,50 @@
     state.observer?.disconnect();
     state.observer = new MutationObserver((mutations) => {
       if (!state.active) return;
+      let removed = false;
       for (const mutation of mutations) {
         if (mutation.type === 'childList') {
+          removed ||= Boolean(mutation.removedNodes?.length);
+          if (mutation.target.tagName === 'STYLE' || [...mutation.addedNodes, ...(mutation.removedNodes || [])].some(node => node.tagName === 'STYLE' || node.tagName === 'LINK')) {
+            scheduleThemeRefresh();
+          }
           for (const node of mutation.addedNodes) {
             if (node instanceof Element) enqueueTree(node);
           }
+        } else if (mutation.type === 'attributes') {
+          if (ownAttributeChange(mutation)) continue;
+          if (mutation.target === document.documentElement || mutation.target === document.body) scheduleThemeRefresh();
+          else enqueueTree(mutation.target);
+        } else if (mutation.type === 'characterData' && mutation.target.parentElement) {
+          enqueue(mutation.target.parentElement);
+          scheduleDrain();
         }
       }
+      if (removed) {
+        for (const element of state.applied) if (!element.isConnected) restoreElement(element);
+      }
     });
-    state.observer.observe(document.documentElement, { childList: true, subtree: true });
+    state.observer.observe(document.documentElement, { childList: true, subtree: true,
+      characterData: true, attributes: true, attributeOldValue: true,
+      attributeFilter: ['class', 'style', 'hidden', 'open', 'data-theme', 'data-mode', 'data-color-mode', 'data-bs-theme'] });
+  }
+
+  function ownAttributeChange(mutation) {
+    const signature = value => mutation.attributeName === 'class'
+      ? String(value || '').split(/\s+/).filter(name => name && !APPLIED_CLASSES.includes(name)).sort().join(' ')
+      : String(value || '').replace(/--oledforge-[\w-]+\s*:[^;]*;?/g, '').replace(/\s*([:;])\s*/g, '$1').replace(/;+$/, '').trim();
+    return ['class', 'style'].includes(mutation.attributeName)
+      && signature(mutation.oldValue) === signature(mutation.target.getAttribute(mutation.attributeName));
+  }
+
+  function scheduleThemeRefresh() {
+    if (!state.active) return;
+    clearTimeout(state.themeTimer);
+    state.themeTimer = setTimeout(() => {
+      if (!state.active) return;
+      clearApplied();
+      activate();
+    }, 60);
   }
 
   function setupPanelGuard() {
@@ -635,24 +774,15 @@
     if (state.drainId) cancelIdleCallback(state.drainId);
     state.drainId = 0;
     clearTimeout(state.viewportTimer);
+    clearTimeout(state.themeTimer);
     clearTimeout(state.idleTimer);
     state.queue.length = 0;
+    state.queueHead = 0;
     state.queued = new WeakSet();
     state.scanning = false;
     for (const element of state.applied) {
       if (!element) continue;
-      element.classList.remove(
-        'oledforge-bg', 'oledforge-fg', 'oledforge-prose', 'oledforge-border',
-        'oledforge-neutral-gradient', 'oledforge-before-bg', 'oledforge-after-bg',
-        'oledforge-before-gradient', 'oledforge-after-gradient',
-        'oledforge-media-balanced', 'oledforge-media-deep', 'oledforge-static-ui'
-      );
-      for (const property of [
-        '--oledforge-bg', '--oledforge-fg', '--oledforge-border',
-        '--oledforge-before-bg', '--oledforge-after-bg'
-      ]) {
-        element.style.removeProperty(property);
-      }
+      restoreElement(element);
     }
     state.applied.clear();
     state.appliedBackground = new WeakMap();
@@ -701,8 +831,7 @@
 
   async function reloadAndApply() {
     clearApplied();
-    await loadSettings();
-    if (isEnabled()) activate();
+    if (await loadSettings() && isEnabled()) activate();
   }
 
   function status() {
@@ -713,7 +842,7 @@
       host,
       settings: state.settings,
       site: state.site,
-      stats: { ...state.stats, queue: state.queue.length }
+      stats: { ...state.stats, queue: state.queue.length - state.queueHead }
     };
   }
 
@@ -753,12 +882,26 @@
 
   addEventListener('scroll', scheduleViewportRescan, { passive: true });
   addEventListener('resize', scheduleViewportRescan, { passive: true });
+  if (typeof matchMedia === 'function') matchMedia('(prefers-color-scheme: dark)').addEventListener('change', scheduleThemeRefresh);
+  document.addEventListener('load', event => {
+    if (event.target.tagName === 'LINK' && event.target.rel === 'stylesheet') scheduleThemeRefresh();
+  }, true);
+  addEventListener('beforeprint', () => {
+    state.resumeAfterPrint = state.active;
+    state.printing = true;
+    clearApplied();
+  });
+  addEventListener('afterprint', () => {
+    state.printing = false;
+    if (state.resumeAfterPrint && isEnabled()) activate();
+    state.resumeAfterPrint = false;
+  });
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) scheduleViewportRescan();
   });
 
   (async () => {
-    await loadSettings();
+    if (!await loadSettings()) return;
     const start = () => {
       if (!isEnabled()) return;
       activate();

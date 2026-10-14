@@ -207,15 +207,18 @@ async function queryMemory() {
 async function askTab(tabId, message, timeoutMs = 750) {
   // A frozen or busy page can leave sendMessage pending forever, which used to
   // stall the whole governor pass. No answer inside the budget means "unknown".
-  return Promise.race([
-    chrome.tabs.sendMessage(tabId, message).catch(() => null),
-    new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs))
-  ]);
+  let timer;
+  try {
+    return await Promise.race([
+      chrome.tabs.sendMessage(tabId, message).catch(() => null),
+      new Promise((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); })
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
-async function canDiscardTab(tab, settings) {
+async function canDiscardTab(tab, settings, explicit = false) {
   if (!tab?.id || tab.active || tab.discarded || !isWebUrl(tab.url)) return false;
-  if (tab.autoDiscardable === false) return false;
+  if (!explicit && tab.autoDiscardable === false) return false;
   if (tab.status === 'loading') return false;
   if (settings.protectPinned && tab.pinned) return false;
   if (settings.protectAudible && tab.audible) return false;
@@ -223,8 +226,8 @@ async function canDiscardTab(tab, settings) {
 
   if (settings.protectDirtyForms) {
     const response = await askTab(tab.id, { type: 'GX_CAN_DISCARD' });
-    // Pages without an injected content script are judged by tab metadata only.
-    if (response && response.canDiscard === false) return false;
+    // A missing/busy content script cannot certify that the tab has no draft.
+    if (response?.canDiscard !== true) return false;
   }
   return true;
 }
@@ -243,11 +246,11 @@ async function recordHibernations(tabs) {
   await chrome.storage.local.set({ hibernationLog: [...entries, ...log].slice(0, HIBERNATION_LOG_LIMIT) });
 }
 
-async function discardCandidates(candidates, settings, limit) {
+async function discardCandidates(candidates, settings, limit, explicit = false) {
   const hibernated = [];
   for (const tab of candidates) {
     if (hibernated.length >= limit) break;
-    if (!(await canDiscardTab(tab, settings))) continue;
+    if (!(await canDiscardTab(tab, settings, explicit))) continue;
     try {
       await chrome.tabs.discard(tab.id);
       tab.discarded = true;
@@ -293,7 +296,7 @@ async function runGovernor({ forceOthers = false } = {}) {
   // rails (pinned/audible/whitelist/unsaved forms) but not the automatic gates.
   if (forceOthers) {
     const candidates = coldestFirst(await chrome.tabs.query({}));
-    return { discarded: await discardCandidates(candidates, settings, settings.maxHibernatePerCycle) };
+    return { discarded: await discardCandidates(candidates, settings, settings.maxHibernatePerCycle, true) };
   }
 
   const idleHibernation = settings.enabled && settings.autoHibernate;

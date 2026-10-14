@@ -52,6 +52,8 @@ Protected browser pages, inaccessible frames, authentication barriers, DRM inter
 
 The Opera research tab remembers the page it was opened from for text extraction. Screenshots require a visible web page in the native side panel; the Opera research tab is never sent as a screenshot. Responses render text and links without loading remote images or media.
 
+Screenshots are discarded if the source tab or its URL changes while research is preparing or capturing. Stop ends remaining selected-tab extraction after the current browser operation returns. Interrupted answers retain the partial text with an incomplete notice; an empty API reply is reported as a failure.
+
 ## Debug log
 
 Open the research tab's DevTools console to view failures. For startup, resolved settings, and request lifecycle logs, run `chrome.storage.local.get('nexus_settings').then(({ nexus_settings = {} }) => chrome.storage.local.set({ nexus_settings: { ...nexus_settings, debug: true } }))` there, then reload the research tab. Set `debug: false` to return to quiet mode. API keys and prompt contents are never logged.

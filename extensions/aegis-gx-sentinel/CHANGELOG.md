@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.7
+
+- Dynamically inserted links, password fields, speculation links and overlay roots are processed themselves, not just their children.
+- Open-page cosmetic settings, ad-only trust and HTTP warnings update immediately; disabling both engines stops the DOM observer. Overlapping/detached mutation roots and unrelated counter changes avoid repeat work.
+- Normal-sized YouTube skip buttons are clickable again; the large-dialog threshold now applies only to anti-adblock warnings.
+- YouTube promotion CSS respects its option and is removed on disable/trust. Player changes are restored without overwriting user volume/speed changes, and background observers/timers stop. The actual `www` hostname is preserved for trust checks.
+- Replaced repeated YouTube promotion DOM writes with the existing stylesheet and one player check per mutation batch.
+
 ## 1.3.6
 
 - Trusted sites now allow repeated downloads over HTTP and HTTPS on every port. Localhost, loopback IPs, IPv6 and LAN hostnames can be trusted from the popup or settings; feed parsing remains separate.

@@ -11,11 +11,15 @@ const NG_EXTENSIONS = {
 
 let scanTimer = null;
 let lastScanAt = 0;
+let autoScan = false;
+let captureNetwork = false;
+let settingsRevision = 0;
 
 chrome.runtime.sendMessage({ type: 'PAGE_READY' }).catch(() => {});
 
 window.addEventListener('message', (event) => {
   if (event.source !== window || event.data?.source !== 'NEBULAGRAB_PAGE') return;
+  if (!captureNetwork && !(autoScan && event.data.item?.source === 'object-url')) return;
   if (event.data.type === 'RESOURCE' && event.data.item) {
     const item = normalizeCandidate(event.data.item);
     if (item) sendItems([item]);
@@ -48,9 +52,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 const observer = new MutationObserver((mutations) => {
+  if (!autoScan) return;
   if (!mutations.some((m) => m.addedNodes?.length || m.type === 'attributes')) return;
   clearTimeout(scanTimer);
   scanTimer = setTimeout(() => {
+    if (!autoScan) return;
     if (Date.now() - lastScanAt < 600) return;
     const items = scanDocument({ lightweight: true });
     sendItems(items);
@@ -58,16 +64,37 @@ const observer = new MutationObserver((mutations) => {
 });
 
 function beginObservation() {
-  if (!document.documentElement) return setTimeout(beginObservation, 20);
+  if (!autoScan) return;
+  if (!document.documentElement) { scanTimer = setTimeout(beginObservation, 20); return; }
   observer.observe(document.documentElement, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ['src', 'srcset', 'poster', 'style', 'data-src', 'data-original', 'data-lazy-src']
   });
-  setTimeout(() => sendItems(scanDocument()), 250);
+  scanTimer = setTimeout(() => { if (autoScan) sendItems(scanDocument()); }, 250);
 }
-beginObservation();
+
+function applySettings(settings = {}) {
+  captureNetwork = settings.captureNetwork !== false;
+  const wasEnabled = autoScan;
+  autoScan = settings.autoScan !== false;
+  if (!autoScan) {
+    observer.disconnect();
+    clearTimeout(scanTimer);
+    scanTimer = null;
+  } else if (!wasEnabled) beginObservation();
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.settings) return;
+  settingsRevision++;
+  applySettings(changes.settings.newValue);
+});
+const initialRevision = settingsRevision;
+chrome.storage.local.get('settings').catch(() => ({})).then(({ settings }) => {
+  if (settingsRevision === initialRevision) applySettings(settings);
+});
 
 function scanDocument(options = {}) {
   lastScanAt = Date.now();
@@ -206,12 +233,12 @@ function normalizeCandidate(raw) {
 
 function inferKind(url, mime = '') {
   const m = String(mime).toLowerCase();
-  if (m.startsWith('image/')) return 'image';
-  if (m.startsWith('video/')) return 'video';
-  if (m.startsWith('audio/')) return 'audio';
   if (/mpegurl/.test(m)) return 'hls';
   if (/dash\+xml/.test(m)) return 'dash';
   if (/(?:video|audio)\/iso\.segment|application\/m4s/.test(m)) return 'segment';
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'audio';
   const value = String(url || '');
   for (const [kind, pattern] of Object.entries(NG_EXTENSIONS)) if (pattern.test(value)) return kind;
   return null;

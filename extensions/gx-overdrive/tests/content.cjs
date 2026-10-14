@@ -7,6 +7,7 @@ const vm = require('node:vm');
 class Element {
   constructor() {
     this.dataset = {};
+    this.attrs = {};
     this.isConnected = true;
     const classes = new Set();
     this.classList = {
@@ -16,22 +17,34 @@ class Element {
       contains(name) { return classes.has(name); }
     };
   }
+  getAttribute(name) { return this.attrs[name] ?? null; }
+  setAttribute(name, value) { this.attrs[name] = String(value); }
+  removeAttribute(name) { delete this.attrs[name]; }
+  hasAttribute(name) { return Object.hasOwn(this.attrs, name); }
 }
 class Video extends Element {
   constructor() { super(); this.paused = false; this.muted = true; this.volume = 0; this.preload = 'auto'; }
+  get preload() { return this.getAttribute('preload') || 'auto'; }
+  set preload(value) { this.setAttribute('preload', value); }
   pause() { this.paused = true; }
   async play() { this.paused = false; }
 }
 const videos = [new Video()];
+const images = [new Element()];
 const idleTasks = [];
 const intersections = [];
 const mutationObservers = [];
 const changes = [];
 let turns = [];
+let editors = [];
+let shadowHosts = [];
 const document = {
   documentElement: new Element(),
   querySelectorAll(selector) {
     if (selector.startsWith('video')) return videos;
+    if (selector.startsWith('img')) return images;
+    if (selector.includes('textarea')) return editors;
+    if (selector === '*') return shadowHosts;
     if (selector === 'turns') return turns;
     return [];
   }
@@ -52,12 +65,28 @@ const context = vm.createContext({
   MutationObserver: class { constructor(fn) { mutationObservers.push(fn); } observe() {} }
 });
 let source = fs.readFileSync(path.join(__dirname, '..', 'content.js'), 'utf8');
-source = source.replace(/\}\)\(\);\s*$/, 'globalThis.test = { state, optimizeVideos, optimizeChat, queueOptimize, applyRootClasses };})();');
+source = source.replace(/\}\)\(\);\s*$/, 'globalThis.test = { state, optimizeImages, optimizeVideos, optimizeChat, queueOptimize, applyRootClasses, hasUnsavedInput };})();');
 vm.runInContext(source, context);
 
 (async () => {
   await new Promise((resolve) => setImmediate(resolve));
-  const { state, optimizeVideos, optimizeChat, applyRootClasses } = context.test;
+  const { state, optimizeImages, optimizeVideos, optimizeChat, applyRootClasses, hasUnsavedInput } = context.test;
+  for (const editor of [
+    { type: 'text', value: '', defaultValue: 'original' },
+    { type: 'checkbox', checked: true, defaultChecked: false },
+    { type: 'radio', checked: false, defaultChecked: true },
+    { tagName: 'SELECT', selectedIndex: 1, size: 0, options: [{ selected: false, defaultSelected: false }, { selected: true, defaultSelected: false }] }
+  ]) {
+    editors = [editor];
+    assert.equal(hasUnsavedInput(), true, 'changed controls including cleared text are dirty');
+  }
+  editors = [{ tagName: 'SELECT', selectedIndex: 0, size: 0, options: [{ selected: true, defaultSelected: false }, { selected: false, defaultSelected: false }] }];
+  assert.equal(hasUnsavedInput(), false, 'implicit first-option defaults do not protect an unchanged select forever');
+  editors = [];
+  shadowHosts = [{ shadowRoot: { querySelectorAll(selector) { return selector === '*' ? [] : [{ isContentEditable: true, textContent: 'unsaved draft' }]; } } }];
+  assert.equal(hasUnsavedInput(), true, 'open shadow-root drafts stay protected');
+  shadowHosts = [];
+
   state.settings = { enabled: true, universalTurbo: true, pauseOffscreenMutedVideo: true };
   optimizeVideos(document);
   const observer = intersections[0];
@@ -67,8 +96,23 @@ vm.runInContext(source, context);
   optimizeVideos(document);
   assert.equal(observer.disconnected, true, 'setting off disconnects the observer');
   assert.equal(videos[0].paused, false, 'setting off restores extension-paused playback');
+  assert.equal(videos[0].preload, 'auto', 'setting off restores the original video preload');
   observer.callback([{ target: videos[0], isIntersecting: false }]);
   assert.equal(videos[0].paused, false, 'a pending observer delivery cannot pause after disable');
+  state.settings.lazyImages = true;
+  optimizeImages(document);
+  assert.equal(images[0].getAttribute('loading'), 'lazy');
+  assert.equal(images[0].getAttribute('decoding'), 'async');
+  state.settings.lazyImages = false;
+  optimizeImages(document);
+  assert.equal(images[0].getAttribute('loading'), null, 'setting off removes only extension-added image loading');
+  assert.equal(images[0].getAttribute('decoding'), null, 'setting off removes only extension-added decoding');
+  state.settings.lazyImages = true;
+  optimizeImages(document);
+  images[0].setAttribute('loading', 'eager');
+  state.settings.lazyImages = false;
+  optimizeImages(document);
+  assert.equal(images[0].getAttribute('loading'), 'eager', 'page changes after optimization are preserved');
   state.settings.aggressiveContainment = true;
   applyRootClasses();
   assert.equal(document.documentElement.classList.contains('gxo-aggressive-containment'), true);

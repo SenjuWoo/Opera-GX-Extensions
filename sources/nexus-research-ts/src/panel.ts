@@ -572,11 +572,15 @@ function extractPageInTab(maxChars: number): PageSnapshot {
     .filter(Boolean)
     .slice(0, 120);
 
-  const links = Array.from(document.querySelectorAll<HTMLAnchorElement>('a[href]'))
-    .map((anchor) => ({ text: collapse(anchor.innerText || anchor.textContent), href: anchor.href }))
-    .filter((link) => /^https?:\/\//i.test(link.href) && (link.text || link.href))
-    .filter((link, index, all) => all.findIndex((candidate) => candidate.href === link.href) === index)
-    .slice(0, 180);
+  const links: PageSnapshot['links'] = [];
+  const seenLinks = new Set<string>();
+  for (const anchor of document.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+    const href = anchor.href;
+    if (!/^https?:\/\//i.test(href) || seenLinks.has(href)) continue;
+    seenLinks.add(href);
+    links.push({ text: collapse(anchor.innerText || anchor.textContent), href });
+    if (links.length === 180) break;
+  }
 
   const tables = Array.from(document.querySelectorAll('table')).slice(0, 12).map((table) => {
     const rows = Array.from(table.rows).slice(0, 40).map((row) => Array.from(row.cells).slice(0, 16).map((cell) => collapse(cell.innerText)).join(' | '));
@@ -684,11 +688,14 @@ async function getContextTab(): Promise<chrome.tabs.Tab | undefined> {
   return chrome.tabs.get(sourceTabId).catch(() => undefined);
 }
 
-async function captureCurrentTab(): Promise<string | null> {
+async function captureCurrentTab(expectedTab?: chrome.tabs.Tab): Promise<string | null> {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.windowId === undefined || !isInjectableUrl(tab.url)) return null;
-    return await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 78 });
+    if (expectedTab && (tab.id !== expectedTab.id || tab.url !== expectedTab.url)) return null;
+    const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 78 });
+    const [after] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
+    return after && after.id === tab.id && after.url === tab.url ? image : null;
   } catch (error) {
     console.warn('Screenshot capture failed', error);
     return null;
@@ -717,9 +724,11 @@ async function gatherBrowserContext(): Promise<{ text: string; image: string | n
   const chunks: string[] = [];
   let extractedTabs = 0;
   const activeTab = await getContextTab();
+  activeController?.signal.throwIfAborted();
 
   if (includePage && activeTab) {
     const snapshot = await extractTab(activeTab, config.pageChars, true);
+    activeController?.signal.throwIfAborted();
     if (snapshot) {
       chunks.push(snapshotToText(snapshot, 'active-page'));
       extractedTabs += 1;
@@ -728,9 +737,11 @@ async function gatherBrowserContext(): Promise<{ text: string; image: string | n
     }
   }
 
-  const extraTabs = (await chrome.tabs.query({ currentWindow: true })).filter((tab) => tab.id !== activeTab?.id && tab.id !== undefined && selectedTabIds.has(tab.id));
+  const extraTabs = selectedTabIds.size ? (await chrome.tabs.query({ currentWindow: true })).filter((tab) => tab.id !== activeTab?.id && tab.id !== undefined && selectedTabIds.has(tab.id)) : [];
+  activeController?.signal.throwIfAborted();
   for (const tab of extraTabs.slice(0, settings.depth === 'abyss' ? 12 : 7)) {
     const snapshot = await extractTab(tab, config.tabChars, false);
+    activeController?.signal.throwIfAborted();
     if (snapshot) {
       chunks.push(snapshotToText(snapshot, `selected-tab-${extractedTabs + 1}`));
       extractedTabs += 1;
@@ -739,7 +750,7 @@ async function gatherBrowserContext(): Promise<{ text: string; image: string | n
     }
   }
 
-  const image = includeScreenshot ? await captureCurrentTab() : null;
+  const image = includeScreenshot && activeTab ? await captureCurrentTab(activeTab) : null;
   return { text: chunks.join('\n\n'), image, extractedTabs };
 }
 
@@ -868,45 +879,52 @@ async function streamOpenRouter(prompt: string, assistant: ChatMessage): Promise
   let buffer = '';
   const citations: Citation[] = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += done ? `${decoder.decode()}\n\n` : decoder.decode(value, { stream: true });
-    buffer = buffer.replace(/\r\n/g, '\n');
-    let boundary = buffer.indexOf('\n\n');
-    while (boundary !== -1) {
-      const event = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      boundary = buffer.indexOf('\n\n');
+  try {
+    stream: while (true) {
+      const { done, value } = await reader.read();
+      buffer += done ? `${decoder.decode()}\n\n` : decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, '\n');
+      let boundary = buffer.indexOf('\n\n');
+      while (boundary !== -1) {
+        const event = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf('\n\n');
 
-      for (const line of event.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        let chunk: any;
-        try { chunk = JSON.parse(data); } catch { continue; }
-        if (chunk.error) throw new Error(chunk.error.message || 'OpenRouter stream error');
-        assistant.model = chunk.model ?? assistant.model;
-        assistant.provider = chunk.provider ?? assistant.provider;
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta ?? {};
-        if (typeof delta.content === 'string') assistant.content += delta.content;
-        if (Array.isArray(delta.content)) {
-          for (const item of delta.content) if (item?.type === 'text' && typeof item.text === 'string') assistant.content += item.text;
-        }
-        const annotationGroups = [delta.annotations, choice?.message?.annotations, chunk.annotations];
-        for (const group of annotationGroups) {
-          if (!Array.isArray(group)) continue;
-          for (const annotation of group) {
-            const citation = annotationToCitation(annotation);
-            if (citation) citations.push(citation);
+        for (const line of event.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (data === '[DONE]') break stream;
+          if (!data) continue;
+          let chunk: any;
+          try { chunk = JSON.parse(data); } catch { continue; }
+          if (chunk.error) throw new Error(chunk.error.message || 'OpenRouter stream error');
+          assistant.model = chunk.model ?? assistant.model;
+          assistant.provider = chunk.provider ?? assistant.provider;
+          const choice = chunk.choices?.[0];
+          const delta = choice?.delta ?? {};
+          if (typeof delta.content === 'string') assistant.content += delta.content;
+          if (Array.isArray(delta.content)) {
+            for (const item of delta.content) if (item?.type === 'text' && typeof item.text === 'string') assistant.content += item.text;
           }
+          const annotationGroups = [delta.annotations, choice?.message?.annotations, chunk.annotations];
+          for (const group of annotationGroups) {
+            if (!Array.isArray(group)) continue;
+            for (const annotation of group) {
+              const citation = annotationToCitation(annotation);
+              if (citation) citations.push(citation);
+            }
+          }
+          if (chunk.usage) assistant.usage = chunk.usage as Usage;
+          updateStreamingMessage(assistant);
         }
-        if (chunk.usage) assistant.usage = chunk.usage as Usage;
-        updateStreamingMessage(assistant);
       }
+      if (done) break;
     }
-    if (done) break;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
   }
+  if (!assistant.content.trim()) throw new Error('OpenRouter returned no answer text. Try another model or revise the request.');
 
   assistant.citations = uniqueByUrl([...citations, ...collectCitationsFromText(assistant.content)]);
   if (assistant.usage) {
@@ -942,10 +960,10 @@ async function runResearch(prefilledPrompt?: string): Promise<void> {
     await streamOpenRouter(prompt, assistant);
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
-      assistant.content = assistant.content || '_Research stopped._';
+      assistant.content += `${assistant.content ? '\n\n---\n' : ''}_Research stopped; this answer is incomplete._`;
     } else {
       console.error('NEXUS Research: request failed', error);
-      assistant.content = assistant.content || `**Research failed:** ${(error as Error).message}`;
+      assistant.content += `${assistant.content ? '\n\n---\n' : ''}**Research failed; answer incomplete:** ${(error as Error).message}`;
       toast((error as Error).message, true);
     }
   } finally {

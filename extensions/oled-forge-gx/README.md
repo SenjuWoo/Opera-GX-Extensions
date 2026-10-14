@@ -20,7 +20,7 @@ OLED Forge GX is a local-only Manifest V3 extension for Opera GX and Chromium br
 1. Extract the source folder.
 2. Open `opera://extensions`.
 3. Enable **Developer mode**.
-4. Choose **Load unpacked** and select the `OLEDForgeGX` folder.
+4. Choose **Load unpacked** and select the extracted folder containing `manifest.json`.
 5. Pin **OLED Forge GX**.
 
 A self-signed CRX is also included in the release output. Chromium-family browsers may warn about manually installed CRX files; loading the unpacked folder is the most reliable developer installation method.
@@ -50,10 +50,14 @@ A browser extension cannot modify monitor firmware, Windows HDR calibration, OLE
 
 ## Development
 
+Version 1.0.3 supports browser-native modern CSS colors, live theme changes, layered backgrounds, explicit text fill and neutral gradient text contrast. Conversion yields to unknown image backgrounds and protected editing regions. Original styles return for printing and disabling.
+
 ```bash
 npm test
 npm run check
 ```
+
+From the repository root, `node tools/oled-browser-smoke.mjs <native-opera.exe> extensions <screenshot.png> --pack` runs the actual extension in a hidden disposable profile alongside the full pack. Its local fixture checks modern colors, gradient contrast, masks, links, controls, themes, printing and restoration. Tests cannot certify every website; colored/translucent artistic gradients and inaccessible shadow content retain site-controlled paint.
 
 ## License
 

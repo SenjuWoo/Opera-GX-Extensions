@@ -9,6 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
+// @grant        GM_openInTab
 // @sandbox      DOM
 // @connect      api.nexusmods.com
 // @run-at       document-idle

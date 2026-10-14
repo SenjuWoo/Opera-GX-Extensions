@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.4 — 2026-10-13
+
+- Protect dirty tabs when the content script is missing, busy, throws or times out; clear completed probe timers.
+- Detect cleared default text, changed checkbox/radio/select controls and drafts inside open shadow roots.
+- Explicit hibernation works with automatic engines switched off while preserving pinned, audible, active, loading, site and dirty-form protections. It leaves automatic unloading switched off.
+- Disabling image/video optimization restores the attributes it changed without overwriting later page changes.
+
 ## 1.2.3 — 2026-10-12
 
 - Keep user-paused downloads paused and release keep-awake for paused-only downloads.

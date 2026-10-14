@@ -22,7 +22,9 @@
 
   // Trusted events only. A script-dispatched click has isTrusted false, which is
   // exactly how a popunder fakes the gesture it needs.
-  for (const type of ['pointerdown', 'mousedown', 'keydown', 'touchstart']) {
+  // Pointer events already cover mouse and touch; compatibility events belong
+  // to the same gesture and must not reset its popup quota.
+  for (const type of ['pointerdown', 'keydown']) {
     window.addEventListener(type, (event) => {
       if (event.isTrusted) policy.noteGesture(state, Date.now());
     }, { capture: true, passive: true });

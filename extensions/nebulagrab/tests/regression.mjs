@@ -8,9 +8,11 @@ let persisted;
 let sessionGet = async () => ({});
 let downloadCount = 0;
 let fetchOptions;
+let sessionSet = async (value) => { persisted = value; };
+let sessionRemove = async () => {};
 const event = () => ({ addListener() {} });
 const chrome = {
-  runtime: { onInstalled: event(), onMessage: event(), getManifest: () => ({ version: '1.3.2' }) },
+  runtime: { onInstalled: event(), onMessage: event(), getManifest: () => ({ version: '1.3.3' }) },
   contextMenus: { onClicked: event() },
   tabs: { onRemoved: event(), onUpdated: event(), sendMessage: async () => ({ started: false, error: 'blocked' }) },
   webRequest: { onBeforeRequest: event(), onBeforeSendHeaders: event(), onHeadersReceived: event(), onErrorOccurred: event() },
@@ -18,7 +20,7 @@ const chrome = {
   downloads: { download: async () => ++downloadCount },
   storage: {
     onChanged: event(), local: { get: async () => ({}), set: async () => {} },
-    session: { get: (...args) => sessionGet(...args), set: async (value) => { persisted = value; }, remove: async () => {} }
+    session: { get: (...args) => sessionGet(...args), set: (...args) => sessionSet(...args), remove: (...args) => sessionRemove(...args) }
   }
 };
 const context = vm.createContext({ chrome, URL, console,
@@ -33,6 +35,8 @@ assert.equal(run("sanitizeSettings({helperUrl:'https://example.com', helperToken
 assert.equal(run("sanitizeSettings({helperUrl:'http://localhost:9000/path'}).helperUrl"), 'http://localhost:9000');
 assert.equal(run("sanitizeSettings({helperUrl:'http://user:password@localhost:9000'}).helperUrl"), 'http://127.0.0.1:17891');
 assert.equal(run("normalizeItem({url:'https://site.test/file.mp4', kind:{}}, 1, 0)"), null, 'Page-supplied invalid media kinds cannot break popup rendering');
+assert.equal(run("kindFromMime('audio/x-mpegurl')"), 'hls', 'Audio-prefixed manifest MIME must take precedence over generic audio');
+assert.doesNotThrow(() => run("normalizeItem({url:'https://site.test/100%off.mp4'}, 1, 0)"), 'A literal percent in a valid URL cannot break media detection');
 assert.notEqual(run("stableUrlIdentity('https://site.test/download?id=1')"), run("stableUrlIdentity('https://site.test/download?id=2')"));
 assert.equal(run("stableUrlIdentity('https://site.test/download?id=1&token=old&expires=1')"), run("stableUrlIdentity('https://site.test/download?id=1&token=new&expires=2')"));
 
@@ -63,6 +67,21 @@ for (const [id, callback] of [...timers]) { timers.delete(id); await callback();
 const saved = persisted.tab_8[0].segmentUrls[0].headers;
 assert.deepEqual(Object.keys(saved), ['Range'], 'Session persistence must omit captured credentials');
 assert.equal(run("getStoredItems(8)[0].segmentUrls[0].headers.Cookie"), 'sample', 'Download credentials remain in memory');
+
+let finishWrite;
+let sessionItems;
+sessionSet = (value) => new Promise((resolve) => { finishWrite = () => { sessionItems = value.tab_9; resolve(); }; });
+sessionRemove = async () => { sessionItems = undefined; };
+run("ingest(9, [{url:'https://site.test/old-page.mp4', kind:'video'}])");
+const pendingWrites = [...timers.values()].map((callback) => callback());
+timers.clear();
+for (let i = 0; i < 5; i++) await Promise.resolve();
+run('clearTab(9)');
+finishWrite();
+await Promise.all(pendingWrites);
+for (let i = 0; i < 8; i++) await Promise.resolve();
+assert.equal(sessionItems, undefined, 'Navigation clear must finish after any already running session write');
+
 await run("helperRequest('/health', {auth:false})");
 assert.equal(fetchOptions.redirect, 'error', 'Pairing requests cannot follow redirects');
 await assert.rejects(run("downloadItem({tabId:8, url:'blob:https://site.test/abc', kind:'blob'})"), /no longer owns/);
@@ -97,4 +116,4 @@ readCount = 0;
 await page.fetch('https://site.test/movie.mp4');
 for (let i = 0; i < 12; i++) await Promise.resolve();
 assert.equal(readCount, 0, 'Ordinary binary video must not be cloned and read for manifest sniffing');
-console.log('NebulaGrab regression checks passed (hydration, cache identity, credential handling, blob errors, streaming manifest sniff).');
+console.log('NebulaGrab regression checks passed (hydration, navigation/write race, MIME/URL handling, cache identity, credential handling, blob errors, streaming manifest sniff).');

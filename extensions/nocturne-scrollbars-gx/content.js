@@ -6,6 +6,7 @@
   const host = Nocturne.domainFromUrl(location.href);
 
   let refreshTimer = 0;
+  let refreshGeneration = 0;
   let mainStyle = null;
   let deepObserver = null;
   let constructedSheet = null;
@@ -13,15 +14,17 @@
   let lastShadowCss = '';
   let deepEnabled = false;
   let deepScanQueued = false;
+  let deepScanGeneration = 0;
+  const pendingDeepRoots = new Set();
   let observedShadowRoots = new WeakSet();
 
   function getAmbientColor() {
     const candidates = [];
-    if (document.documentElement) {
-      candidates.push(getComputedStyle(document.documentElement).backgroundColor);
-    }
     if (document.body) {
       candidates.push(getComputedStyle(document.body).backgroundColor);
+    }
+    if (document.documentElement) {
+      candidates.push(getComputedStyle(document.documentElement).backgroundColor);
     }
 
     for (const value of candidates) {
@@ -85,6 +88,10 @@
   }
 
   function inspectSubtree(root) {
+    if (root.shadowRoot) {
+      styleShadowRoot(root.shadowRoot);
+      inspectSubtree(root.shadowRoot);
+    }
     for (const element of root.querySelectorAll?.('*') || []) {
       if (element.shadowRoot) {
         styleShadowRoot(element.shadowRoot);
@@ -93,15 +100,24 @@
     }
   }
 
-  // One coalesced idle scan per burst. Walking every added node synchronously
-  // meant a querySelectorAll('*') per mutation record, which made busy SPAs
-  // crawl whenever deep shadow coverage was on.
-  function queueDeepScan() {
-    if (deepScanQueued || !deepEnabled) return;
+  // Scan added subtrees once per idle burst; the initial scan covers the document.
+  function queueDeepScan(root = document) {
+    if (!deepEnabled) return;
+    if (root === document) pendingDeepRoots.clear();
+    if (!pendingDeepRoots.has(document)) pendingDeepRoots.add(root);
+    if (deepScanQueued) return;
     deepScanQueued = true;
+    const generation = deepScanGeneration;
     const run = () => {
+      if (generation !== deepScanGeneration) return;
       deepScanQueued = false;
-      if (deepEnabled) inspectSubtree(document);
+      const roots = [...pendingDeepRoots];
+      pendingDeepRoots.clear();
+      if (deepEnabled) {
+        for (const tree of roots) {
+          if (tree === document || tree.isConnected !== false) inspectSubtree(tree);
+        }
+      }
     };
     if ('requestIdleCallback' in window) requestIdleCallback(run, { timeout: 1200 });
     else setTimeout(run, 120);
@@ -110,7 +126,11 @@
   function startDeepCoverage() {
     if (deepObserver) return;
     deepObserver = new MutationObserver((records) => {
-      if (records.some((record) => record.addedNodes.length)) queueDeepScan();
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === 1) queueDeepScan(node);
+        }
+      }
     });
     const root = document.documentElement || document;
     deepObserver.observe(root, { childList: true, subtree: true });
@@ -121,6 +141,9 @@
     // Must clear the flag first: a scan already queued would otherwise run after
     // the user switched Nocturne off and re-attach styles to every shadow root.
     deepEnabled = false;
+    deepScanGeneration++;
+    deepScanQueued = false;
+    pendingDeepRoots.clear();
     deepObserver?.disconnect();
     deepObserver = null;
     Nocturne.debug('deep shadow coverage stopped');
@@ -164,6 +187,7 @@
   }
 
   async function refresh() {
+    const generation = ++refreshGeneration;
     if (!host) {
       removeMainStyle();
       stopDeepCoverage();
@@ -172,6 +196,7 @@
 
     try {
       const { global, rules } = await Nocturne.readState();
+      if (generation !== refreshGeneration) return;
       const { settings } = Nocturne.effectiveSettings(global, rules, host);
       if (!settings.enabled) {
         removeMainStyle();
@@ -194,6 +219,7 @@
   }
 
   function scheduleRefresh(delay = 20) {
+    refreshGeneration++;
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refresh, delay);
   }
