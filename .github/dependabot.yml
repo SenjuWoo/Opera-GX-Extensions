@@ -1,8 +1,12 @@
 version: 2
 
 updates:
+  # The repository root has no package.json; each npm project lives in its own folder.
   - package-ecosystem: npm
-    directory: /
+    directories:
+      - /sources/nexus-archive-helper
+      - /sources/nexus-research-ts
+      - /extensions/oled-forge-gx
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
