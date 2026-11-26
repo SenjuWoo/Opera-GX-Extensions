@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4 - 2026-11-26
+
+- Update DOMPurify to 3.5.0, marked to 18.2.1 and the esbuild bundler to 0.28.2.
+- Rendered answers are unchanged: the same markdown, links and blocked HTML produce identical output in the side panel.
+
 ## 1.0.3 - 2026-10-13
 
 - Discard screenshots when their tab or URL changes before or during capture.

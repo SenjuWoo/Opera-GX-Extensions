@@ -1,0 +1,11 @@
+NEXUS Research 1.0.3 -> 1.0.4 (ZIP only)
+- Update DOMPurify to 3.5.0, marked to 18.2.1 and the esbuild bundler to 0.28.2.
+- Rendered answers are unchanged.
+- Ships as nexus-v1.0.4.zip under the same pinned key (same extension ID).
+  The newest signed package is still nexus-v1.0.3.crx.
+
+Unchanged and carried over byte for byte:
+Aegis GX Sentinel 1.3.7, GX Overdrive 1.2.4, NebulaGrab 1.3.3,
+PrismShot GX 1.0.2, PopShield GX 1.0.4, Nocturne Scrollbars GX 1.1.2,
+OLED Forge GX 1.0.3, Nexus Archive Helper 1.1.3 (CRX, ZIP and userscript),
+NebulaGrab Companion 1.3.2.

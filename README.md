@@ -31,7 +31,7 @@ Site resources, threat feeds and downloads still use the network.
 | [NebulaGrab](extensions/nebulagrab) | 1.3.3 | Media detector with resumable downloads, HLS / DASH fragment capture, Smart Fetch |
 | [PopShield GX](extensions/popshield-gx) | 1.0.4 | Popup, popunder, click-hijack and interstitial blocker — behavioural, not blocklist-driven |
 | [Nocturne Scrollbars GX](extensions/nocturne-scrollbars-gx) | 1.1.2 | Dark modern scrollbars with presets, per-site profiles, adaptive contrast |
-| [NEXUS Research](extensions/nexus-research) | 1.0.3 | Deep web research through OpenRouter with page intelligence and citations |
+| [NEXUS Research](extensions/nexus-research) | 1.0.4 | Deep web research through OpenRouter with page intelligence and citations |
 | [OLED Forge GX](extensions/oled-forge-gx) | 1.0.3 | True-black OLED treatment |
 | [PrismShot GX](extensions/prismshot-gx) | 1.0.2 | Video frame capture |
 
@@ -63,7 +63,9 @@ Download the `.crx` for what you want from the [latest release](https://github.c
 
 Chrome, Edge and Brave reject any `.crx` without a Web Store publisher signature. On those, use the `.zip`: unpack it, then Developer mode → Load unpacked.
 
-Latest packaged GitHub release: [v2026.10.13](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.10.13) (all nine extensions and Companion 1.3.2). See the [maintenance audit](AUDIT-2026-10-13.md) and [plain-text changelog](Release/CHANGELOG-2026.10.13.txt).
+**NEXUS Research 1.0.4 ships as a `.zip` only.** Its newest signed `.crx` is 1.0.3, which stays in the release until the signing key is available again (see [Signing keys](#signing-keys)). The 1.0.4 ZIP carries the same pinned key, so it loads unpacked under the same extension ID. Loading it over an installed 1.0.3 `.crx` has not been tested; if you depend on saved research sessions, export them first, or stay on 1.0.3. 1.0.4 is a dependency refresh: rendered answers are identical.
+
+Latest packaged GitHub release: [v2026.11.26](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/tag/v2026.11.26) (NEXUS Research 1.0.4 ZIP plus the unchanged signed packages of the other eight extensions and Companion 1.3.2). Changelogs: [2026.11.26](Release/CHANGELOG-2026.11.26.txt), [2026.10.13](Release/CHANGELOG-2026.10.13.txt). See the [maintenance audit](AUDIT-2026-10-13.md).
 
 ## Build
 
@@ -77,7 +79,7 @@ To package the optional companion distribution, run `pwsh -File tools/package-co
 
 It uses Opera's own packer — no OpenSSL, no third-party signing tools. Node.js is used only to derive a public key from a signing key.
 
-To ship an update: raise `version` in that extension's `manifest.json`, run `Build.cmd`, drag the new `.crx` in. Same key plus a higher version is an in-place update, so settings, toolbar position and permissions survive.
+To ship an update: raise `version` in that extension's `manifest.json`, run `Build.cmd`, drag the new `.crx` in. Same key plus a higher version is an in-place update, so settings, toolbar position and permissions survive. Without the private keys, `Build.cmd` stops; see [Signing keys](#signing-keys) for the ZIP-only route.
 
 `sources/nexus-research-ts` is the TypeScript project behind NEXUS. Its shipped bundle is committed under `extensions/nexus-research`; rebuild it with:
 
@@ -119,6 +121,8 @@ Each extension has a private key in `tools/keys/`, which is **gitignored and mus
 Lost a key? Restore its backup before building. The builder stops on missing or mismatched keys for existing extensions, preserving their identities and settings. Only an extension without a pinned identity can receive a new signing key.
 
 All nine signing identities match the currently observed installed IDs. Older Archive Helper copies from another signing identity may still install separately; preserve their settings/key until migration succeeds.
+
+**Current status: the private keys are not available to the builder,** so `Build.cmd` stops before packing (by design). Until they are restored, an updated extension ships as a `.zip` that keeps its pinned `key`, and its last signed `.crx` stays published. New keys are deliberately not generated: a new key is a new extension ID, which would install as a separate extension and strand existing settings. The reasoning is in [DECISIONS.md](DECISIONS.md).
 
 ## How it works
 
