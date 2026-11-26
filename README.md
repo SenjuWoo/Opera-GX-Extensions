@@ -1,46 +1,26 @@
-<p align="center">
-  <img src="assets/mark.svg" width="72" height="72" alt="Opera GX Extensions mark">
-</p>
+<div align="center">
 
-<h1 align="center">Opera GX Extensions</h1>
+![Opera GX Extensions: the pink double-chevron mark beside the tagline 'Nine local-first Manifest V3 extensions for Opera GX, signed with keys you keep offline.'](docs/presentation/hero.png)
 
-<p align="center"><strong>Local-first Manifest V3 tools for Opera GX.</strong></p>
+[![CI](https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg)](https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SenjuWoo/Opera-GX-Extensions?label=release&color=ff3ea5&labelColor=0d0f11)](https://github.com/SenjuWoo/Opera-GX-Extensions/releases/latest)
+[![Manifest V3](https://img.shields.io/badge/manifest-V3-b98cff?labelColor=0d0f11)](extensions)
+[![Node 22 for builds](https://img.shields.io/badge/build-node%2022-8f9aa6?labelColor=0d0f11)](.github/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-ff3ea5?labelColor=0d0f11)](LICENSE)
 
-<p align="center">
-  Eight signed extensions, one optional Nexus Mods helper,<br>
-  and the one-command packer that builds `.crx` + `.zip` + `SHA256SUMS.txt`.
-</p>
+**[Install](#install)** · **[The extensions](#what-you-get)** · **[Build](#build)** · **[Signing](#signing-keys)** · **[How it works](#how-it-works)** · **[Status](#honest-status)** · **[Changelog](CHANGELOG.md)**
 
-<p align="center">
-  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/Opera-GX-Extensions/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-ff3ea5?labelColor=0d0f11" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/Opera-GX-Extensions/releases/latest"><img src="https://img.shields.io/github/v/release/SenjuWoo/Opera-GX-Extensions?label=release&color=8f9aa6" alt="latest release"></a>
-  <img src="https://img.shields.io/badge/manifest-V3-8f9aa6?labelColor=0d0f11" alt="Manifest V3">
-</p>
+</div>
 
-<p align="center">
-  <a href="#install">Install</a>
-  ·
-  <a href="#build">Build</a>
-  ·
-  <a href="#signing-keys">Signing</a>
-  ·
-  <a href="#honest-status">Status</a>
-</p>
+Eight signed extensions, one optional Nexus Mods helper, and the one-command packer
+that builds `.crx` + `.zip` + `SHA256SUMS.txt`. Opera GX's packer can sign a real
+`.crx` from a private key you keep offline. These extensions are written to that
+path: no store listing required, IDs stable across unpacked and packed installs,
+settings survive version bumps.
 
-## Why it exists
-
-Opera GX's packer can sign a real `.crx` from a private key you keep offline. These extensions are written to that path: no store listing required, IDs stable across unpacked and packed installs, settings survive version bumps.
-
-No developer telemetry, analytics, or remote executable code. NEXUS Research uses your OpenRouter key; optional Nexus Archive Helper uses your Nexus API key. Site resources, threat feeds and downloads still use the network.
-
-![Aegis trusted-site settings in an isolated Opera GX test](docs/aegis-trust.png)
-
-Trusted hosts cover HTTP and HTTPS on all ports; optional debug diagnostics remain local.
-
-![OLED readability regression fixture rendered in isolated Opera GX](docs/oled-readability.png)
-
-OLED regression coverage includes modern CSS colors, gradient text, masks and captions over preserved images. This controlled fixture has all nine extensions loaded.
+No developer telemetry, analytics, or remote executable code. NEXUS Research uses
+your OpenRouter key; the optional Nexus Archive Helper uses your Nexus API key.
+Site resources, threat feeds and downloads still use the network.
 
 ## What you get
 
@@ -60,6 +40,22 @@ Optional, not essential:
 | Extension | Version | What it does |
 | --- | --- | --- |
 | [Nexus Archive Helper](extensions/nexus-archive-helper) | 1.1.3 | Resolves archived, old, hidden-page and deleted Nexus Mods files via the official Nexus API |
+
+![The real popup UIs of all nine extensions, rendered from this repository's unpacked folders in a throwaway Chromium profile: GX Overdrive with memory, hibernation and long-chat engines; Aegis GX with Stealth Ad Shield, threat domains and the Hardened profile; NebulaGrab's media scanner; PopShield GX counters; Nocturne's preset matrix; the NEXUS Research side panel; OLED Forge GX strength sliders; PrismShot GX capture engine; and Nexus Archive Helper's resolver](docs/presentation/popups.png)
+
+![Full-page settings rendered the same way: the Aegis GX Sentinel command center, the GX Overdrive dashboard with the memory governor and long-chat engine, Nocturne Studio with geometry and chromatics, and PrismShot GX capture-engine settings](docs/presentation/dashboards.png)
+
+<p align="center"><sub>Real headless renders: Chromium loaded every folder under <code>extensions/</code> unpacked, all nine IDs matched the pinned keys, and each popup, side panel and options page was captured on a fresh profile with default settings.</sub></p>
+
+In native Opera GX (isolated test profiles):
+
+![Aegis trusted-site settings in an isolated Opera GX test](docs/aegis-trust.png)
+
+Trusted hosts cover HTTP and HTTPS on all ports; optional debug diagnostics remain local.
+
+![OLED readability regression fixture rendered in isolated Opera GX](docs/oled-readability.png)
+
+OLED regression coverage includes modern CSS colors, gradient text, masks and captions over preserved images. This controlled fixture has all nine extensions loaded.
 
 ## Install
 
@@ -83,17 +79,6 @@ It uses Opera's own packer — no OpenSSL, no third-party signing tools. Node.js
 
 To ship an update: raise `version` in that extension's `manifest.json`, run `Build.cmd`, drag the new `.crx` in. Same key plus a higher version is an in-place update, so settings, toolbar position and permissions survive.
 
-## Project map
-
-```text
-extensions/     one folder per extension — the single source of truth
-Release/        signed .crx + .zip + SHA256SUMS.txt
-tools/          build.ps1, pubkey.cjs
-tools/keys/     private signing keys — gitignored, never published
-sources/        build inputs that are not loadable extensions
-_archive/       superseded copies, gitignored
-```
-
 `sources/nexus-research-ts` is the TypeScript project behind NEXUS. Its shipped bundle is committed under `extensions/nexus-research`; rebuild it with:
 
 ```powershell
@@ -110,6 +95,23 @@ npm ci
 npm run sync:opera
 ```
 
+### The source gate
+
+CI runs the same checks on every push: JavaScript syntax for every `.js` file, all 25 bundled extension suites, payload validation, runtime parity for both generated bundles, the TypeScript build and typecheck, companion tests, README/manifest version sync, and signing-identity preservation.
+
+![Terminal: check-versions reports manifests, version_name and the README table in sync; payload validation passes; runtime-parity tests reject stale bundles and signing-key changes; NEXUS Research passes 11 of 11 tests and its 9 rebuilt files match the shipped bundle; Nexus Archive Helper passes 41 of 41; PrismShot GX regression checks pass](docs/presentation/screenshot-gate.png)
+
+| Need | Command |
+| --- | --- |
+| Build and sign everything into `Release\` | `Build.cmd` |
+| Companion package | `pwsh -File tools/package-companion.ps1` |
+| README / manifest version sync | `node tools/check-versions.mjs` |
+| Payload validator tests | `node tools/validate-extension.test.mjs` |
+| Runtime parity tests | `node tools/runtime-parity.test.mjs` |
+| NEXUS: test, build, parity | `npm test` · `npm run build` · `npm run verify:runtime` (in `sources/nexus-research-ts`) |
+| Archive Helper: test, build, parity | `npm run verify` · `npm run verify:runtime` (in `sources/nexus-archive-helper`) |
+| Companion tests | `python -m unittest discover -s sources/nebulagrab-companion/tests` |
+
 ## Signing keys
 
 Each extension has a private key in `tools/keys/`, which is **gitignored and must stay that way**. The matching public key is pinned in the manifest as `key`, so an extension's ID comes from the key rather than from an install path. That is what lets the same folder be loaded unpacked and shipped as a `.crx` under one identity, and what makes folder renames harmless.
@@ -118,6 +120,32 @@ Lost a key? Restore its backup before building. The builder stops on missing or 
 
 All nine signing identities match the currently observed installed IDs. Older Archive Helper copies from another signing identity may still install separately; preserve their settings/key until migration succeeds.
 
+## How it works
+
+```mermaid
+flowchart LR
+  SRC["sources/nexus-research-ts · sources/nexus-archive-helper"] -->|"npm run sync:opera"| EXT["extensions/ (single source of truth)"]
+  EXT -->|"CI: syntax, suites, parity, versions"| GATE{"green?"}
+  KEYS[("tools/keys/ · offline, gitignored")] --> BUILD
+  GATE --> BUILD["Build.cmd: Opera packer"]
+  BUILD --> REL["Release/: .crx + .zip + SHA256SUMS.txt"]
+  REL -->|"drag onto opera://extensions"| GX["Opera GX: same ID, settings kept"]
+```
+
+```text
+extensions/     one folder per extension — the single source of truth
+Release/        signed .crx + .zip + SHA256SUMS.txt
+tools/          build.ps1, pubkey.cjs, validators, parity checks
+tools/keys/     private signing keys — gitignored, never published
+sources/        build inputs that are not loadable extensions
+docs/           screenshots and presentation images
+_archive/       superseded copies, gitignored
+```
+
+- **Pinned identities.** The `key` in each manifest fixes the extension ID, so unpacked and packed installs share settings.
+- **Generated code is checked, not trusted.** The NEXUS and Archive Helper bundles are rebuilt from source in CI and compared file by file with what ships.
+- **Deterministic packages.** Stable payload timestamps mean the same source and packer produce the same bytes.
+
 ## Honest status
 
 Verified in this tree:
@@ -125,6 +153,7 @@ Verified in this tree:
 - CI: JavaScript syntax, extension regressions, TypeScript/build checks, generated runtime parity, companion tests, versions and signing-identity preservation
 - Manifest versions in the table above
 - Signed CRX identities and tamper rejection; fresh ZIP payloads and native Opera downloads. See [audit coverage](AUDIT-2026-10-13.md).
+- All nine extensions load unpacked in Chromium with IDs that match their pinned keys
 - Root [LICENSE](LICENSE) is MIT
 
 Not claimed:

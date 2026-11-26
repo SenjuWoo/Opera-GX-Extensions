@@ -685,7 +685,7 @@ async function getContextTab(): Promise<chrome.tabs.Tab | undefined> {
   if (activeTab?.url !== chrome.runtime.getURL('sidepanel.html')) return activeTab;
   const { nexus_source_tab: sourceTabId } = await chrome.storage.session.get('nexus_source_tab');
   if (!Number.isInteger(sourceTabId)) return undefined;
-  return chrome.tabs.get(sourceTabId).catch(() => undefined);
+  return chrome.tabs.get(sourceTabId as number).catch(() => undefined);
 }
 
 async function captureCurrentTab(expectedTab?: chrome.tabs.Tab): Promise<string | null> {
