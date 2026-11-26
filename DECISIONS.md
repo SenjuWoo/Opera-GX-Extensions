@@ -35,34 +35,45 @@ identity guards, the manifest `key` values and the runtime-sync key check are un
 - The ZIP is already the documented install route for Chrome, Edge and Brave. Its
   manifest keeps the pinned `key`, so an unpacked load gets the same ID as the signed
   build.
-- None of the three bumps closes an advisory that affects NEXUS. NEXUS calls
-  `DOMPurify.sanitize` on a string, without `SAFE_FOR_TEMPLATES` or `IN_PLACE`; the
-  3.5.0 security fixes target those modes and DOM-node input. So staying on the
-  1.0.3 `.crx` is safe.
+- Staying on the 1.0.3 `.crx` carries no known vulnerability. The GitHub advisory
+  database lists no advisory for dompurify 3.4.17 or marked 15.0.12; the only esbuild
+  0.25.12 entry is withdrawn and concerns Deno. The repository had zero open
+  Dependabot alerts before the bump. The DOMPurify 3.5.0 security fixes target
+  `SAFE_FOR_TEMPLATES`, `IN_PLACE` and DOM-node input. NEXUS calls
+  `DOMPurify.sanitize` on a string and uses none of those.
 - Rendered output is unchanged. The same seeded markdown, including script, event-handler,
   `javascript:` and `data:` payloads, produced identical side-panel HTML in 1.0.3 and
   1.0.4. That test ran with the real extension in an isolated headless Opera GX 140
   profile.
 
 **Not verified.** Whether loading the 1.0.4 ZIP unpacked over an installed 1.0.3 `.crx`
-keeps that copy's stored data. The README tells users to export sessions first or to
-stay on 1.0.3.
+keeps that copy's stored data. The README tells users to keep a backup copy first
+(the side panel can export sessions as JSON but has no import), or to stay on 1.0.3.
 
-**How the ZIP was built.** The steps mirror `build.ps1`'s staging, without signing:
+**How the ZIP was built.** `tools/package-zip-unsigned.py` mirrors `build.ps1`'s
+staging, without signing:
 
-1. Copy `extensions/nexus-research` from a clean LF checkout of the release commit.
+1. Copy `extensions/<folder>` from a checkout made with `core.autocrlf=false`.
 2. Remove `.git`, `_metadata`, `tests`, `tools`, `node_modules`, `package.json`,
    `package-lock.json` and `QA_REPORT.md`.
 3. Run `node tools/validate-extension.mjs <stage>`.
 4. Zip with forward-slash entry names and the fixed 2000-01-01 timestamp.
 
-The same procedure applied to the 1.0.3 source reproduced every runtime file of the
-published `nexus-v1.0.3.zip` exactly; only `CHANGELOG.md` line endings differed. Use
-forward slashes. Windows PowerShell 5.1's `Compress-Archive`, which `Build.cmd` launches,
-writes backslash entry names. The published ZIPs were made with PowerShell 7.
+It refuses an extension without a pinned `key`. Run against release commit
+`fcc37016e4407e383462c9bc8d8f328af1146d80`, it reproduces the published
+`nexus-v1.0.4.zip` byte for byte (SHA-256 `3A2C5D10…FC4CD2`). Run against the 1.0.3
+source, it reproduced every runtime file of the published `nexus-v1.0.3.zip`; only
+`CHANGELOG.md` line endings differed.
 
-**Reversal.** If the original `.pem` files turn up, put them in `tools/keys/` and run
-`Build.cmd`. It verifies each key against the pinned manifest key and signs a normal
-in-place-update `.crx`, `nexus-v1.0.4.crx` included. Generating new identities stays
-a deliberate, per-extension owner decision with a migration plan. It never happens
-as a side effect of a build.
+Do not package ZIPs with Windows PowerShell 5.1. Its `Compress-Archive` writes
+backslash entry names, and `Build.cmd` launches `powershell.exe`, which is 5.1. The
+published ZIPs before this release came from PowerShell 7.
+
+**Reversal.** If the original `.pem` files turn up, put them in `tools/keys/`, make an
+LF checkout (`core.autocrlf=false`), and run `Build.cmd -NoZip`. The builder checks
+each key against the pinned manifest key and signs a normal in-place-update `.crx`,
+`nexus-v1.0.4.crx` included. `-NoZip` leaves the published ZIPs untouched; otherwise
+a 5.1 run would replace them with backslash-named archives. `SHA256SUMS.txt` is
+regenerated from the working tree, so the LF checkout keeps text-file hashes equal
+to the published bytes. Generating new identities stays a deliberate, per-extension
+owner decision with a migration plan. It never happens as a side effect of a build.
